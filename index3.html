@@ -1,0 +1,1675 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Contabilidad Premium</title>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
+</head>
+<body>
+    <div id="root"></div>
+    
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        const firebaseConfig = {
+          apiKey: "AIzaSyB83ffXsLjD965CDCuKMQ0Tkur8FPvTGlQ",
+          authDomain: "contabilidad-7e45d.firebaseapp.com",
+          projectId: "contabilidad-7e45d",
+          storageBucket: "contabilidad-7e45d.firebasestorage.app",
+          messagingSenderId: "799225995329",
+          appId: "1:799225995329:web:a92f811bf8d859227d66c0"
+        };
+
+        let app, db, auth;
+        try {
+          app = firebase.initializeApp(firebaseConfig);
+          db = firebase.firestore();
+          auth = firebase.auth();
+        } catch (error) {
+          console.error("Error Firebase:", error);
+        }
+
+        // Temas de colores
+        const temas = {
+          oscuro: {
+            nombre: 'Oscuro',
+            primario: 'from-slate-900 via-purple-900 to-slate-900',
+            tarjeta: 'bg-white/10',
+            texto: 'text-white',
+            boton: 'bg-purple-600 hover:bg-purple-700'
+          },
+          claro: {
+            nombre: 'Claro',
+            primario: 'from-blue-50 via-white to-blue-50',
+            tarjeta: 'bg-white shadow-lg',
+            texto: 'text-gray-900',
+            boton: 'bg-blue-600 hover:bg-blue-700'
+          },
+          verde: {
+            nombre: 'Verde',
+            primario: 'from-green-900 via-teal-900 to-green-900',
+            tarjeta: 'bg-white/10',
+            texto: 'text-white',
+            boton: 'bg-green-600 hover:bg-green-700'
+          },
+          naranja: {
+            nombre: 'Naranja',
+            primario: 'from-orange-900 via-red-900 to-orange-900',
+            tarjeta: 'bg-white/10',
+            texto: 'text-white',
+            boton: 'bg-orange-600 hover:bg-orange-700'
+          }
+        };
+
+        function App() {
+          const [transacciones, setTransacciones] = useState([]);
+          const [usuario, setUsuario] = useState(null);
+          const [email, setEmail] = useState('');
+          const [password, setPassword] = useState('');
+          const [modoLogin, setModoLogin] = useState('login');
+          const [cargando, setCargando] = useState(true);
+          const [mostrarForm, setMostrarForm] = useState(false);
+          const [vista, setVista] = useState('dashboard');
+          const [tema, setTema] = useState('oscuro');
+          const [tasaCambio, setTasaCambio] = useState({ usdToBs: 36.50, usdtToUsd: 1.00 });
+          const [filtroMes, setFiltroMes] = useState('todos');
+          const chartRef = useRef(null);
+          const chartInstance = useRef(null);
+          const fileInputRef = useRef(null);
+          
+          const [form, setForm] = useState({
+            fecha: new Date().toISOString().split('T')[0],
+            tipo: 'Gasto',
+            categoria: 'Comida',
+            descripcion: '',
+            monto: '',
+            moneda: 'USD',
+            cuenta: 'Efectivo'
+          });
+
+          const [formCompra, setFormCompra] = useState({
+            fecha: new Date().toISOString().split('T')[0],
+            status: 'Pagado',
+            cliente: '',
+            compraBs: '',
+            comisionBanco: 0,
+            tasa: '',
+            compraDolar: 0,
+            operador: '',
+            gananciaBs: 0,
+            gananciaDolar: 0
+          });
+
+          const [formGasto, setFormGasto] = useState({
+            fecha: new Date().toISOString().split('T')[0],
+            descripcion: '',
+            monto: '',
+            categoria: 'Varios',
+            cuenta: 'Provincial',
+            moneda: 'Bs',
+            total: '',
+            gastoDolar: 0
+          });
+
+          const [tasaVenta, setTasaVenta] = useState(37.00);
+
+          // Filtros para cuentas por cobrar
+          const [filtrosPorCobrar, setFiltrosPorCobrar] = useState({
+            cliente: 'todos',
+            status: 'Por Cobrar',
+            fechaInicio: '',
+            fechaFin: '',
+            operador: 'todos'
+          });
+
+          const temaActual = temas[tema];
+
+          // Auth
+          useEffect(() => {
+            if (!auth) return;
+            const unsub = auth.onAuthStateChanged((user) => {
+              setUsuario(user);
+              setCargando(false);
+            });
+            return () => unsub();
+          }, []);
+
+          // Sincronizar transacciones DEL USUARIO ACTUAL
+          useEffect(() => {
+            if (!db || !usuario) return;
+            
+            const unsub = db.collection('transacciones')
+              .where('usuarioId', '==', usuario.uid)
+              .orderBy('fecha', 'desc')
+              .onSnapshot(snapshot => {
+                const datos = [];
+                snapshot.forEach(doc => datos.push({ id: doc.id, ...doc.data() }));
+                setTransacciones(datos);
+              }, error => {
+                console.error("Error al cargar transacciones:", error);
+                db.collection('transacciones')
+                  .where('usuarioId', '==', usuario.uid)
+                  .onSnapshot(snapshot => {
+                    const datos = [];
+                    snapshot.forEach(doc => datos.push({ id: doc.id, ...doc.data() }));
+                    datos.sort((a, b) => b.fecha.localeCompare(a.fecha));
+                    setTransacciones(datos);
+                  });
+              });
+            return () => unsub();
+          }, [usuario]);
+
+          // Sincronizar tasa de venta DEL USUARIO ACTUAL
+          useEffect(() => {
+            if (!db || !usuario) return;
+            const unsub = db.collection('usuarios')
+              .doc(usuario.uid)
+              .collection('configuracion')
+              .doc('tasaVenta')
+              .onSnapshot(doc => {
+                if (doc.exists) {
+                  setTasaVenta(doc.data().valor);
+                } else {
+                  db.collection('usuarios')
+                    .doc(usuario.uid)
+                    .collection('configuracion')
+                    .doc('tasaVenta')
+                    .set({ valor: 37.00 });
+                }
+              });
+            return () => unsub();
+          }, [usuario]);
+
+          // Sincronizar tasas de cambio DEL USUARIO ACTUAL
+          useEffect(() => {
+            if (!db || !usuario) return;
+            const unsub = db.collection('usuarios')
+              .doc(usuario.uid)
+              .collection('configuracion')
+              .doc('tasaCambio')
+              .onSnapshot(doc => {
+                if (doc.exists) {
+                  setTasaCambio(doc.data());
+                } else {
+                  db.collection('usuarios')
+                    .doc(usuario.uid)
+                    .collection('configuracion')
+                    .doc('tasaCambio')
+                    .set({ usdToBs: 36.50, usdtToUsd: 1.00 });
+                }
+              });
+            return () => unsub();
+          }, [usuario]);
+
+          // Calcular campos automáticos de Compra
+          useEffect(() => {
+            if (form.tipo === 'Compra') {
+              const compraBs = parseFloat(formCompra.compraBs) || 0;
+              const tasa = parseFloat(formCompra.tasa) || 0;
+              
+              const comisionBanco = compraBs * 0.003;
+              const compraDolar = tasa > 0 ? compraBs / tasa : 0;
+              const gananciaBs = tasa > 0 ? (compraDolar * tasaVenta) - compraBs : 0;
+              const gananciaDolar = tasa > 0 ? gananciaBs / tasa : 0;
+
+              setFormCompra(prev => ({
+                ...prev,
+                comisionBanco: comisionBanco,
+                compraDolar: compraDolar,
+                gananciaBs: gananciaBs,
+                gananciaDolar: gananciaDolar
+              }));
+            }
+          }, [formCompra.compraBs, formCompra.tasa, tasaVenta, form.tipo]);
+
+          // Calcular campos automáticos de Gasto
+          useEffect(() => {
+            if (form.tipo === 'Gasto') {
+              const total = parseFloat(formGasto.total) || 0;
+              const gastoDolar = tasaVenta > 0 ? total / tasaVenta : 0;
+
+              setFormGasto(prev => ({
+                ...prev,
+                gastoDolar: gastoDolar
+              }));
+            }
+          }, [formGasto.total, tasaVenta, form.tipo]);
+
+          // Login
+          const handleLogin = async (e) => {
+            e.preventDefault();
+            try {
+              if (modoLogin === 'login') {
+                await auth.signInWithEmailAndPassword(email, password);
+              } else {
+                const userCredential = await auth.createUserWithEmailAndPassword(email, password);
+                const uid = userCredential.user.uid;
+                await db.collection('usuarios').doc(uid).set({
+                  email: email,
+                  creadoEn: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                await db.collection('usuarios').doc(uid).collection('configuracion').doc('tasaVenta').set({ valor: 37.00 });
+                await db.collection('usuarios').doc(uid).collection('configuracion').doc('tasaCambio').set({ usdToBs: 36.50, usdtToUsd: 1.00 });
+                
+                enviarNotificacion(email, 'Bienvenido', 'Tu cuenta ha sido creada exitosamente');
+              }
+            } catch (error) {
+              alert('Error: ' + error.message);
+            }
+          };
+
+          const handleLogout = () => {
+            auth.signOut();
+            setTransacciones([]);
+            setTasaVenta(37.00);
+            setTasaCambio({ usdToBs: 36.50, usdtToUsd: 1.00 });
+          };
+
+          // IMPORTAR EXCEL
+          const importarExcel = async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            
+            reader.onload = async (evt) => {
+              try {
+                const data = new Uint8Array(evt.target.result);
+                const workbook = XLSX.read(data, { type: 'array', cellDates: true });
+                const sheetName = workbook.SheetNames[0];
+                const worksheet = workbook.Sheets[sheetName];
+                const jsonData = XLSX.utils.sheet_to_json(worksheet, { 
+                  raw: false,
+                  defval: ''
+                });
+
+                console.log('📊 Total de filas:', jsonData.length);
+                console.log('📋 Primera fila:', jsonData[0]);
+
+                let importadas = 0;
+                let errores = 0;
+
+                for (let i = 0; i < jsonData.length; i++) {
+                  const row = jsonData[i];
+                  
+                  try {
+                    // Limpiar y convertir números
+                    const limpiarNumero = (valor) => {
+                      if (!valor) return 0;
+                      if (typeof valor === 'number') return valor;
+                      const limpio = String(valor).replace(/[BsF$,\s]/g, '').replace(',', '.');
+                      const numero = parseFloat(limpio);
+                      return isNaN(numero) ? 0 : numero;
+                    };
+
+                    // Parsear fecha
+                    let fecha = row['Fecha'] || '';
+                    if (fecha && fecha.includes('/')) {
+                      const partes = fecha.split('/');
+                      if (partes.length === 3) {
+                        const dia = partes[0].padStart(2, '0');
+                        const mes = partes[1].padStart(2, '0');
+                        const año = partes[2].length === 2 ? '20' + partes[2] : partes[2];
+                        fecha = `${año}-${mes}-${dia}`;
+                      }
+                    }
+
+                    const status = row['Status'] || 'Por Cobrar';
+                    const cliente = row['Cliente'] || '';
+                    const depositosBs = limpiarNumero(row['Depositos']);
+                    const comisionBanco = limpiarNumero(row['Comision Banco.']);
+                    const tasa = limpiarNumero(row['TASA']);
+                    const compraDolar = limpiarNumero(row['COMPRA $']);
+                    const operador = row['Operador'] || '';
+                    const gananciaBs = limpiarNumero(row['Ganancia en Bs']);
+                    const gananciaDolar = limpiarNumero(row['Ganancia en Dolar']);
+                    const tasaVentaExcel = limpiarNumero(row['Tasa Venta']);
+
+                    // Validar datos mínimos
+                    if (!cliente || compraDolar === 0) {
+                      console.log(`⚠️ Fila ${i + 2}: Datos incompletos, saltando...`);
+                      continue;
+                    }
+
+                    // Crear transacción con los datos del Excel
+                    const transaccion = {
+                      tipo: 'Compra',
+                      fecha: fecha || new Date().toISOString().split('T')[0],
+                      status: status,
+                      cliente: cliente.trim(),
+                      compraBs: depositosBs, // Depositos es la compra en Bs
+                      comisionBanco: comisionBanco,
+                      tasa: tasa,
+                      compraDolar: compraDolar,
+                      operador: operador.trim(),
+                      gananciaBs: gananciaBs,
+                      gananciaDolar: gananciaDolar,
+                      tasaVenta: tasaVentaExcel, // Tasa del Excel (solo para importación)
+                      monto: compraDolar,
+                      moneda: 'USD',
+                      categoria: 'Compra de Divisas',
+                      descripcion: `Compra - Cliente: ${cliente.trim()} (Importado)`,
+                      cuenta: 'Operaciones',
+                      usuarioId: usuario.uid,
+                      creadoPor: usuario.email,
+                      creadoEn: firebase.firestore.FieldValue.serverTimestamp(),
+                      importado: true
+                    };
+
+                    console.log(`✅ Fila ${i + 2}: ${cliente} - $${compraDolar}`);
+
+                    await db.collection('transacciones').add(transaccion);
+                    importadas++;
+
+                  } catch (error) {
+                    console.error(`❌ Error en fila ${i + 2}:`, error);
+                    errores++;
+                  }
+                }
+
+                alert(`✅ Importación completada!\n\n- Importadas: ${importadas}\n- Errores: ${errores}\n- Total: ${jsonData.length}`);
+                
+                // Limpiar input
+                if (fileInputRef.current) {
+                  fileInputRef.current.value = '';
+                }
+
+              } catch (error) {
+                console.error('❌ Error general:', error);
+                alert('Error al importar: ' + error.message);
+              }
+            };
+
+            reader.readAsArrayBuffer(file);
+          };
+
+          // CRUD Transacciones
+          const agregarTransaccion = async (e) => {
+            e.preventDefault();
+            try {
+              let datosTransaccion;
+              
+              if (form.tipo === 'Compra') {
+                datosTransaccion = {
+                  tipo: 'Compra',
+                  fecha: formCompra.fecha,
+                  status: formCompra.status,
+                  cliente: formCompra.cliente,
+                  compraBs: parseFloat(formCompra.compraBs),
+                  comisionBanco: formCompra.comisionBanco,
+                  tasa: parseFloat(formCompra.tasa),
+                  compraDolar: formCompra.compraDolar,
+                  operador: formCompra.operador,
+                  gananciaBs: formCompra.gananciaBs,
+                  gananciaDolar: formCompra.gananciaDolar,
+                  tasaVenta: tasaVenta,
+                  monto: formCompra.compraDolar,
+                  moneda: 'USD',
+                  categoria: 'Compra de Divisas',
+                  descripcion: `Compra - Cliente: ${formCompra.cliente}`,
+                  cuenta: 'Operaciones',
+                  usuarioId: usuario.uid,
+                  creadoPor: usuario.email,
+                  creadoEn: firebase.firestore.FieldValue.serverTimestamp()
+                };
+              } else if (form.tipo === 'Gasto') {
+                datosTransaccion = {
+                  tipo: 'Gasto',
+                  fecha: formGasto.fecha,
+                  descripcion: formGasto.descripcion,
+                  monto: parseFloat(formGasto.monto) || 0,
+                  categoria: formGasto.categoria,
+                  cuenta: formGasto.cuenta,
+                  moneda: formGasto.moneda,
+                  total: parseFloat(formGasto.total) || 0,
+                  gastoDolar: formGasto.gastoDolar,
+                  tasaVenta: tasaVenta,
+                  usuarioId: usuario.uid,
+                  creadoPor: usuario.email,
+                  creadoEn: firebase.firestore.FieldValue.serverTimestamp()
+                };
+              } else {
+                datosTransaccion = {
+                  ...form,
+                  monto: parseFloat(form.monto),
+                  usuarioId: usuario.uid,
+                  creadoPor: usuario.email,
+                  creadoEn: firebase.firestore.FieldValue.serverTimestamp()
+                };
+              }
+
+              await db.collection('transacciones').add(datosTransaccion);
+              
+              // Reset formularios
+              setForm({
+                fecha: new Date().toISOString().split('T')[0],
+                tipo: 'Gasto',
+                categoria: 'Comida',
+                descripcion: '',
+                monto: '',
+                moneda: 'USD',
+                cuenta: 'Efectivo'
+              });
+              setFormCompra({
+                fecha: new Date().toISOString().split('T')[0],
+                status: 'Pagado',
+                cliente: '',
+                compraBs: '',
+                comisionBanco: 0,
+                tasa: '',
+                compraDolar: 0,
+                operador: '',
+                gananciaBs: 0,
+                gananciaDolar: 0
+              });
+              setFormGasto({
+                fecha: new Date().toISOString().split('T')[0],
+                descripcion: '',
+                monto: '',
+                categoria: 'Varios',
+                cuenta: 'Provincial',
+                moneda: 'Bs',
+                total: '',
+                gastoDolar: 0
+              });
+              setMostrarForm(false);
+              
+              // Notificar
+              if (form.tipo === 'Compra' && formCompra.compraDolar > 1000) {
+                enviarNotificacion(usuario.email, 'Compra Grande', `Se registró una compra de ${formCompra.compraDolar.toFixed(2)}`);
+              }
+            } catch (err) {
+              alert('Error: ' + err.message);
+            }
+          };
+
+          const eliminar = async (id) => {
+            if (window.confirm('¿Eliminar esta transacción?')) {
+              await db.collection('transacciones').doc(id).delete();
+            }
+          };
+
+          // Actualizar tasas DEL USUARIO ACTUAL
+          const actualizarTasas = async () => {
+            try {
+              await db.collection('usuarios')
+                .doc(usuario.uid)
+                .collection('configuracion')
+                .doc('tasaCambio')
+                .set(tasaCambio);
+              alert('Tasas actualizadas correctamente');
+            } catch (error) {
+              alert('Error: ' + error.message);
+            }
+          };
+
+          // Cálculos - MODIFICADO PARA INCLUIR IMPORTACIONES
+          const calcularBalance = () => {
+            let usd = 0, usdt = 0, bs = 0;
+            
+            transacciones.forEach(t => {
+              if (t.importado) {
+                // Para transacciones importadas:
+                // - Ganancia en Dolar se suma al balance de Divisa (USD)
+                usd += t.gananciaDolar || 0;
+                // - Depositos (compraBs) se resta del balance Bs
+                bs -= t.compraBs || 0;
+              } else {
+                // Para transacciones normales (creadas en la app)
+                let m = parseFloat(t.monto);
+                if (t.tipo === 'Gasto' || t.tipo === 'Compra') m = -Math.abs(m);
+                if (t.moneda === 'USD') usd += m;
+                else if (t.moneda === 'USDT') usdt += m;
+                else if (t.moneda === 'BS') bs += m;
+              }
+            });
+            
+            return { usd, usdt, bs };
+          };
+
+          const obtenerTransaccionesFiltradas = () => {
+            if (filtroMes === 'todos') return transacciones;
+            const [año, mes] = filtroMes.split('-');
+            return transacciones.filter(t => {
+              const [tAño, tMes] = t.fecha.split('-');
+              return tAño === año && tMes === mes;
+            });
+          };
+
+          const calcularPorCategoria = () => {
+            const trans = obtenerTransaccionesFiltradas();
+            const porCat = {};
+            trans.forEach(t => {
+              if (!porCat[t.categoria]) porCat[t.categoria] = 0;
+              const m = Math.abs(parseFloat(t.monto));
+              let montoUSD = m;
+              if (t.moneda === 'USDT') montoUSD = m * tasaCambio.usdtToUsd;
+              if (t.moneda === 'BS') montoUSD = m / tasaCambio.usdToBs;
+              porCat[t.categoria] += montoUSD;
+            });
+            return Object.entries(porCat).sort((a, b) => b[1] - a[1]);
+          };
+
+          const calcularResumenMensual = () => {
+            const trans = obtenerTransaccionesFiltradas();
+            const resumen = { ingresos: 0, gastos: 0, compras: 0, ventas: 0 };
+            trans.forEach(t => {
+              const m = Math.abs(parseFloat(t.monto));
+              let montoUSD = m;
+              if (t.moneda === 'USDT') montoUSD = m * tasaCambio.usdtToUsd;
+              if (t.moneda === 'BS') montoUSD = m / tasaCambio.usdToBs;
+              if (t.tipo === 'Ingreso') resumen.ingresos += montoUSD;
+              else if (t.tipo === 'Gasto') resumen.gastos += montoUSD;
+              else if (t.tipo === 'Compra') resumen.compras += montoUSD;
+              else if (t.tipo === 'Venta') resumen.ventas += montoUSD;
+            });
+            resumen.balance = resumen.ingresos + resumen.ventas - resumen.gastos - resumen.compras;
+            return resumen;
+          };
+
+          const obtenerMesesDisponibles = () => {
+            const meses = new Set();
+            transacciones.forEach(t => {
+              const [año, mes] = t.fecha.split('-');
+              meses.add(`${año}-${mes}`);
+            });
+            return Array.from(meses).sort().reverse();
+          };
+
+          // Funciones para cuentas por cobrar
+          const obtenerCompras = () => {
+            return transacciones.filter(t => t.tipo === 'Compra');
+          };
+
+          const obtenerClientesUnicos = () => {
+            const compras = obtenerCompras();
+            const clientes = new Set();
+            compras.forEach(c => {
+              if (c.cliente) clientes.add(c.cliente);
+            });
+            return Array.from(clientes).sort();
+          };
+
+          const obtenerOperadoresUnicos = () => {
+            const compras = obtenerCompras();
+            const operadores = new Set();
+            compras.forEach(c => {
+              if (c.operador) operadores.add(c.operador);
+            });
+            return Array.from(operadores).sort();
+          };
+
+          const obtenerComprasFiltradas = () => {
+            let compras = obtenerCompras();
+
+            if (filtrosPorCobrar.cliente !== 'todos') {
+              compras = compras.filter(c => c.cliente === filtrosPorCobrar.cliente);
+            }
+
+            if (filtrosPorCobrar.status !== 'todos') {
+              compras = compras.filter(c => c.status === filtrosPorCobrar.status);
+            }
+
+            if (filtrosPorCobrar.operador !== 'todos') {
+              compras = compras.filter(c => c.operador === filtrosPorCobrar.operador);
+            }
+
+            if (filtrosPorCobrar.fechaInicio) {
+              compras = compras.filter(c => c.fecha >= filtrosPorCobrar.fechaInicio);
+            }
+
+            if (filtrosPorCobrar.fechaFin) {
+              compras = compras.filter(c => c.fecha <= filtrosPorCobrar.fechaFin);
+            }
+
+            return compras.sort((a, b) => b.fecha.localeCompare(a.fecha));
+          };
+
+          const calcularTotalPorCobrar = () => {
+            const comprasFiltradas = obtenerComprasFiltradas();
+            let totalBs = 0;
+            let totalUsd = 0;
+            let totalGananciaBs = 0;
+            let totalGananciaUsd = 0;
+
+            comprasFiltradas.forEach(c => {
+              totalBs += c.compraBs || 0;
+              totalUsd += c.compraDolar || 0;
+              totalGananciaBs += c.gananciaBs || 0;
+              totalGananciaUsd += c.gananciaDolar || 0;
+            });
+
+            return {
+              cantidad: comprasFiltradas.length,
+              totalBs,
+              totalUsd,
+              totalGananciaBs,
+              totalGananciaUsd
+            };
+          };
+
+          const obtenerResumenPorCliente = () => {
+            const comprasFiltradas = obtenerComprasFiltradas();
+            const resumen = {};
+
+            comprasFiltradas.forEach(c => {
+              if (!resumen[c.cliente]) {
+                resumen[c.cliente] = {
+                  cliente: c.cliente,
+                  cantidad: 0,
+                  totalBs: 0,
+                  totalUsd: 0,
+                  porCobrar: 0,
+                  pagado: 0
+                };
+              }
+
+              resumen[c.cliente].cantidad++;
+              resumen[c.cliente].totalBs += c.compraBs || 0;
+              resumen[c.cliente].totalUsd += c.compraDolar || 0;
+
+              if (c.status === 'Por Cobrar') {
+                resumen[c.cliente].porCobrar += c.compraDolar || 0;
+              } else {
+                resumen[c.cliente].pagado += c.compraDolar || 0;
+              }
+            });
+
+            return Object.values(resumen).sort((a, b) => b.totalUsd - a.totalUsd);
+          };
+
+          // Exportar
+          const exportarExcel = () => {
+            const datos = transacciones.map(t => ({
+              Fecha: t.fecha,
+              Tipo: t.tipo,
+              Categoría: t.categoria,
+              Descripción: t.descripcion,
+              Monto: t.monto,
+              Moneda: t.moneda,
+              Cuenta: t.cuenta,
+              Usuario: t.creadoPor,
+              Importado: t.importado ? 'Sí' : 'No'
+            }));
+            const ws = XLSX.utils.json_to_sheet(datos);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "Transacciones");
+            XLSX.writeFile(wb, `contabilidad_${usuario.email}_${new Date().toISOString().split('T')[0]}.xlsx`);
+          };
+
+          const exportarPDF = () => {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            doc.setFontSize(16);
+            doc.text(`Reporte de ${usuario.email}`, 20, 20);
+            doc.setFontSize(10);
+            let y = 40;
+            obtenerTransaccionesFiltradas().slice(0, 30).forEach((t, i) => {
+              doc.text(`${t.fecha} - ${t.tipo} - ${t.descripcion} - ${t.monto} ${t.moneda}`, 20, y);
+              y += 7;
+              if (y > 280) {
+                doc.addPage();
+                y = 20;
+              }
+            });
+            doc.save(`reporte_${usuario.email}_${new Date().toISOString().split('T')[0]}.pdf`);
+          };
+
+          // Notificaciones
+          const enviarNotificacion = (email, asunto, mensaje) => {
+            console.log(`Enviando email a ${email}: ${asunto} - ${mensaje}`);
+          };
+
+          // Gráfico
+          useEffect(() => {
+            if (vista === 'graficos' && chartRef.current) {
+              if (chartInstance.current) {
+                chartInstance.current.destroy();
+              }
+              
+              const porCat = calcularPorCategoria();
+              const ctx = chartRef.current.getContext('2d');
+              chartInstance.current = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                  labels: porCat.map(c => c[0]),
+                  datasets: [{
+                    data: porCat.map(c => c[1]),
+                    backgroundColor: [
+                      '#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6',
+                      '#06b6d4', '#ec4899', '#14b8a6', '#f97316', '#a855f7'
+                    ]
+                  }]
+                },
+                options: {
+                  responsive: true,
+                  plugins: {
+                    legend: { position: 'bottom' }
+                  }
+                }
+              });
+            }
+          }, [vista, transacciones, filtroMes]);
+
+          if (cargando) {
+            return (
+              <div className={`min-h-screen bg-gradient-to-br ${temaActual.primario} flex items-center justify-center`}>
+                <div className={`${temaActual.texto} text-center`}>
+                  <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-purple-500 mx-auto mb-4"></div>
+                  <p className="text-xl">Cargando...</p>
+                </div>
+              </div>
+            );
+          }
+
+          if (!usuario) {
+            return (
+              <div className={`min-h-screen bg-gradient-to-br ${temaActual.primario} flex items-center justify-center p-4`}>
+                <div className={`${temaActual.tarjeta} backdrop-blur-lg rounded-2xl p-8 max-w-md w-full border border-white/20`}>
+                  <h1 className={`text-3xl font-bold mb-6 text-center ${temaActual.texto}`}>
+                    🔐 {modoLogin === 'login' ? 'Iniciar Sesión' : 'Registrarse'}
+                  </h1>
+                  <form onSubmit={handleLogin} className="space-y-4">
+                    <div>
+                      <label className={`block text-sm mb-2 ${temaActual.texto}`}>Email</label>
+                      <input
+                        type="email"
+                        value={email}
+                        onChange={e => setEmail(e.target.value)}
+                        className="w-full bg-slate-700 text-white rounded-lg px-4 py-3 border border-slate-600"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className={`block text-sm mb-2 ${temaActual.texto}`}>Contraseña</label>
+                      <input
+                        type="password"
+                        value={password}
+                        onChange={e => setPassword(e.target.value)}
+                        className="w-full bg-slate-700 text-white rounded-lg px-4 py-3 border border-slate-600"
+                        required
+                      />
+                    </div>
+                    <button type="submit" className={`w-full ${temaActual.boton} text-white py-3 rounded-lg font-semibold`}>
+                      {modoLogin === 'login' ? 'Entrar' : 'Crear Cuenta'}
+                    </button>
+                  </form>
+                  <button
+                    onClick={() => setModoLogin(modoLogin === 'login' ? 'registro' : 'login')}
+                    className={`w-full mt-4 ${temaActual.texto} text-center text-sm underline`}
+                  >
+                    {modoLogin === 'login' ? '¿No tienes cuenta? Regístrate' : '¿Ya tienes cuenta? Inicia sesión'}
+                  </button>
+                  
+                  <div className="mt-8 pt-6 border-t border-white/20">
+                    <p className={`text-center text-sm ${temaActual.texto} opacity-75`}>
+                      💡 Cada usuario tiene su propia base de datos separada
+                    </p>
+                  </div>
+                </div>
+              </div>
+            );
+          }
+
+          const balance = calcularBalance();
+          const resumen = calcularResumenMensual();
+          const categorias = calcularPorCategoria();
+
+          return (
+            <div className={`min-h-screen bg-gradient-to-br ${temaActual.primario} ${temaActual.texto} p-4`}>
+              <div className="max-w-7xl mx-auto">
+                
+                <div className={`${temaActual.tarjeta} backdrop-blur-lg rounded-2xl p-6 mb-6 border border-white/20`}>
+                  <div className="flex justify-between items-center flex-wrap gap-4">
+                    <div>
+                      <h1 className="text-3xl font-bold mb-2">💰 Sistema Premium</h1>
+                      <p className="text-sm opacity-75">👤 {usuario.email}</p>
+                      <p className="text-xs opacity-50 mt-1">Mis datos personales</p>
+                      <div className="mt-3 space-y-1">
+                        <p className="text-2xl font-bold text-green-400">${balance.usd.toFixed(2)} USD</p>
+                        <p className="text-lg font-semibold text-yellow-400">{balance.bs.toFixed(2)} Bs</p>
+                        <p className="text-lg font-semibold text-blue-400">{balance.usdt.toFixed(2)} USDT</p>
+                      </div>
+                    </div>
+                    <div className="flex gap-2 flex-wrap">
+                      <button onClick={() => setMostrarForm(true)} className={`${temaActual.boton} text-white px-4 py-2 rounded-lg font-semibold`}>
+                        + Nueva
+                      </button>
+                      
+                      {/* BOTÓN IMPORTAR EXCEL */}
+                      <label className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg font-semibold cursor-pointer flex items-center gap-2">
+                        📥 Importar Excel
+                        <input
+                          ref={fileInputRef}
+                          type="file"
+                          accept=".xlsx,.xls"
+                          onChange={importarExcel}
+                          className="hidden"
+                        />
+                      </label>
+                      
+                      <button onClick={exportarExcel} className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-semibold">
+                        📊 Excel
+                      </button>
+                      <button onClick={exportarPDF} className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg font-semibold">
+                        📄 PDF
+                      </button>
+                      <button onClick={handleLogout} className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg">
+                        Salir
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex gap-2 mb-6 flex-wrap">
+                  {['dashboard', 'transacciones', 'porCobrar', 'graficos', 'calendario', 'tasas', 'temas'].map(v => (
+                    <button
+                      key={v}
+                      onClick={() => setVista(v)}
+                      className={`px-4 py-2 rounded-lg ${vista === v ? temaActual.boton : 'bg-white/10'} text-white`}
+                    >
+                      {v === 'porCobrar' ? 'Por Cobrar' : v.charAt(0).toUpperCase() + v.slice(1)}
+                    </button>
+                  ))}
+                </div>
+
+                {mostrarForm && (
+                  <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-y-auto">
+                    <div className="bg-slate-800 rounded-2xl p-6 max-w-3xl w-full my-8 max-h-[90vh] overflow-y-auto">
+                      <div className="flex justify-between items-center mb-4">
+                        <h2 className="text-2xl font-bold text-white">Nueva Transacción</h2>
+                        <button onClick={() => setMostrarForm(false)} className="text-gray-400 hover:text-white text-2xl">×</button>
+                      </div>
+                      <form onSubmit={agregarTransaccion} className="space-y-4">
+                        
+                        {/* Selector de tipo */}
+                        <div>
+                          <label className="block text-sm mb-2 text-white">Tipo de Transacción</label>
+                          <select 
+                            value={form.tipo} 
+                            onChange={e => setForm({...form, tipo: e.target.value})} 
+                            className="w-full bg-slate-700 rounded px-4 py-2 text-white"
+                          >
+                            <option>Ingreso</option>
+                            <option>Gasto</option>
+                            <option>Compra</option>
+                            <option>Venta</option>
+                          </select>
+                        </div>
+
+                        {/* Formulario para COMPRA */}
+                        {form.tipo === 'Compra' ? (
+                          <div className="space-y-4">
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <label className="block text-sm mb-2 text-white">Fecha</label>
+                                <input 
+                                  type="date" 
+                                  value={formCompra.fecha} 
+                                  onChange={e => setFormCompra({...formCompra, fecha: e.target.value})} 
+                                  className="w-full bg-slate-700 rounded px-4 py-2 text-white" 
+                                  required 
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-sm mb-2 text-white">Status</label>
+                                <select 
+                                  value={formCompra.status} 
+                                  onChange={e => setFormCompra({...formCompra, status: e.target.value})} 
+                                  className="w-full bg-slate-700 rounded px-4 py-2 text-white"
+                                >
+                                  <option>Pagado</option>
+                                  <option>Por Cobrar</option>
+                                </select>
+                              </div>
+                            </div>
+
+                            <div>
+                              <label className="block text-sm mb-2 text-white">Cliente</label>
+                              <input 
+                                value={formCompra.cliente} 
+                                onChange={e => setFormCompra({...formCompra, cliente: e.target.value})} 
+                                className="w-full bg-slate-700 rounded px-4 py-2 text-white" 
+                                placeholder="Nombre del cliente"
+                                required 
+                              />
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <label className="block text-sm mb-2 text-white">Compra Bs</label>
+                                <input 
+                                  type="number" 
+                                  step="0.01" 
+                                  value={formCompra.compraBs} 
+                                  onChange={e => setFormCompra({...formCompra, compraBs: e.target.value})} 
+                                  className="w-full bg-slate-700 rounded px-4 py-2 text-white" 
+                                  placeholder="0.00"
+                                  required 
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-sm mb-2 text-white">Comisión Banco (0.3%)</label>
+                                <input 
+                                  type="number" 
+                                  step="0.01" 
+                                  value={formCompra.comisionBanco.toFixed(2)} 
+                                  className="w-full bg-slate-600 rounded px-4 py-2 text-gray-400" 
+                                  disabled 
+                                />
+                              </div>
+                            </div>
+
+                            <div>
+                              <label className="block text-sm mb-2 text-white">TASA (Precio de Compra)</label>
+                              <input 
+                                type="number" 
+                                step="0.01" 
+                                value={formCompra.tasa} 
+                                onChange={e => setFormCompra({...formCompra, tasa: e.target.value})} 
+                                className="w-full bg-slate-700 rounded px-4 py-2 text-white" 
+                                placeholder="36.50"
+                                required 
+                              />
+                            </div>
+
+                            <div className="bg-blue-500/20 border border-blue-500 rounded-lg p-4">
+                              <p className="text-sm text-blue-200 mb-1">COMPRA $ (Calculado)</p>
+                              <p className="text-3xl font-bold text-blue-400">${formCompra.compraDolar.toFixed(2)}</p>
+                            </div>
+
+                            <div>
+                              <label className="block text-sm mb-2 text-white">Operador</label>
+                              <input 
+                                value={formCompra.operador} 
+                                onChange={e => setFormCompra({...formCompra, operador: e.target.value})} 
+                                className="w-full bg-slate-700 rounded px-4 py-2 text-white" 
+                                placeholder="Nombre del operador"
+                                required 
+                              />
+                            </div>
+
+                            <div className="bg-slate-700/50 rounded-lg p-4 space-y-2">
+                              <div className="flex justify-between">
+                                <span className="text-white">Tasa de Venta:</span>
+                                <span className="font-bold text-green-400">{tasaVenta.toFixed(2)} Bs</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-white">Ganancia en Bs:</span>
+                                <span className="font-bold text-green-400">{formCompra.gananciaBs.toFixed(2)} Bs</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-white">Ganancia en $:</span>
+                                <span className="font-bold text-green-400">${formCompra.gananciaDolar.toFixed(2)}</span>
+                              </div>
+                            </div>
+                          </div>
+                        ) : form.tipo === 'Gasto' ? (
+                          /* Formulario para GASTO */
+                          <div className="space-y-4">
+                            <div className="bg-gradient-to-r from-red-500 to-orange-500 rounded-lg p-4 mb-4">
+                              <p className="text-sm text-red-100 mb-1">Gasto en $ (Calculado)</p>
+                              <p className="text-3xl font-bold text-white">${formGasto.gastoDolar.toFixed(2)}</p>
+                              <p className="text-xs text-red-100 mt-1">Total ÷ Tasa de Venta ({tasaVenta.toFixed(2)} Bs)</p>
+                            </div>
+
+                            <div>
+                              <label className="block text-sm mb-2 text-white">Fecha</label>
+                              <input 
+                                type="date" 
+                                value={formGasto.fecha} 
+                                onChange={e => setFormGasto({...formGasto, fecha: e.target.value})} 
+                                className="w-full bg-slate-700 rounded px-4 py-2 text-white" 
+                                required 
+                              />
+                            </div>
+
+                            <div>
+                              <label className="block text-sm mb-2 text-white">Descripción</label>
+                              <textarea
+                                value={formGasto.descripcion} 
+                                onChange={e => setFormGasto({...formGasto, descripcion: e.target.value})} 
+                                className="w-full bg-slate-700 rounded px-4 py-2 text-white resize-none" 
+                                placeholder="Breve descripción del gasto"
+                                rows="3"
+                                required 
+                              />
+                            </div>
+
+                            <div>
+                              <label className="block text-sm mb-2 text-white">Monto</label>
+                              <input 
+                                type="number" 
+                                step="0.01" 
+                                value={formGasto.monto} 
+                                onChange={e => setFormGasto({...formGasto, monto: e.target.value})} 
+                                className="w-full bg-slate-700 rounded px-4 py-2 text-white" 
+                                placeholder="0.00"
+                                required 
+                              />
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <label className="block text-sm mb-2 text-white">Categoría</label>
+                                <select 
+                                  value={formGasto.categoria} 
+                                  onChange={e => setFormGasto({...formGasto, categoria: e.target.value})} 
+                                  className="w-full bg-slate-700 rounded px-4 py-2 text-white"
+                                >
+                                  <option>Varios</option>
+                                  <option>Escuela</option>
+                                  <option>Servicios</option>
+                                  <option>Rafael</option>
+                                  <option>Emilys</option>
+                                  <option>Casa</option>
+                                  <option>Carro</option>
+                                  <option>Prestamos</option>
+                                  <option>Remesas</option>
+                                  <option>Pasajes</option>
+                                </select>
+                              </div>
+                              <div>
+                                <label className="block text-sm mb-2 text-white">Cuenta</label>
+                                <select 
+                                  value={formGasto.cuenta} 
+                                  onChange={e => setFormGasto({...formGasto, cuenta: e.target.value})} 
+                                  className="w-full bg-slate-700 rounded px-4 py-2 text-white"
+                                >
+                                  <option>Provincial</option>
+                                  <option>Venezuela</option>
+                                  <option>USD</option>
+                                  <option>Binance</option>
+                                </select>
+                              </div>
+                            </div>
+
+                            <div>
+                              <label className="block text-sm mb-2 text-white">Moneda</label>
+                              <select 
+                                value={formGasto.moneda} 
+                                onChange={e => setFormGasto({...formGasto, moneda: e.target.value})} 
+                                className="w-full bg-slate-700 rounded px-4 py-2 text-white"
+                              >
+                                <option>USDT</option>
+                                <option>Bs</option>
+                                <option>USD</option>
+                              </select>
+                            </div>
+
+                            <div>
+                              <label className="block text-sm mb-2 text-white font-semibold">Total</label>
+                              <input 
+                                type="number" 
+                                step="0.01" 
+                                value={formGasto.total} 
+                                onChange={e => setFormGasto({...formGasto, total: e.target.value})} 
+                                className="w-full bg-slate-700 rounded px-4 py-2 text-white text-lg font-semibold" 
+                                placeholder="0.00"
+                                required 
+                              />
+                              <p className="text-xs text-gray-400 mt-1">Este monto se usa para calcular el gasto en dólares</p>
+                            </div>
+                          </div>
+                        ) : (
+                          /* Formulario NORMAL para otros tipos */
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <label className="block text-sm mb-2 text-white">Fecha</label>
+                              <input type="date" value={form.fecha} onChange={e => setForm({...form, fecha: e.target.value})} className="w-full bg-slate-700 rounded px-4 py-2 text-white" required />
+                            </div>
+                            <div>
+                              <label className="block text-sm mb-2 text-white">Monto</label>
+                              <input type="number" step="0.01" value={form.monto} onChange={e => setForm({...form, monto: e.target.value})} className="w-full bg-slate-700 rounded px-4 py-2 text-white" required />
+                            </div>
+                            <div>
+                              <label className="block text-sm mb-2 text-white">Moneda</label>
+                              <select value={form.moneda} onChange={e => setForm({...form, moneda: e.target.value})} className="w-full bg-slate-700 rounded px-4 py-2 text-white">
+                                <option>USD</option>
+                                <option>USDT</option>
+                                <option>BS</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="block text-sm mb-2 text-white">Cuenta</label>
+                              <select value={form.cuenta} onChange={e => setForm({...form, cuenta: e.target.value})} className="w-full bg-slate-700 rounded px-4 py-2 text-white">
+                                <option>Efectivo</option>
+                                <option>Banco Venezuela</option>
+                                <option>Binance</option>
+                                <option>Otro</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="block text-sm mb-2 text-white">Categoría</label>
+                              <input value={form.categoria} onChange={e => setForm({...form, categoria: e.target.value})} className="w-full bg-slate-700 rounded px-4 py-2 text-white" required />
+                            </div>
+                            <div>
+                              <label className="block text-sm mb-2 text-white">Descripción</label>
+                              <input value={form.descripcion} onChange={e => setForm({...form, descripcion: e.target.value})} className="w-full bg-slate-700 rounded px-4 py-2 text-white" required />
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="flex gap-3 pt-4">
+                          <button type="submit" className="flex-1 bg-green-500 hover:bg-green-600 py-3 rounded-lg font-semibold text-white">
+                            Guardar Transacción
+                          </button>
+                          <button type="button" onClick={() => setMostrarForm(false)} className="px-6 bg-slate-600 py-3 rounded-lg text-white">
+                            Cancelar
+                          </button>
+                        </div>
+                      </form>
+                    </div>
+                  </div>
+                )}
+
+                {vista === 'dashboard' && (
+                  <div className="space-y-6">
+                    <div className="mb-4">
+                      <select value={filtroMes} onChange={e => setFiltroMes(e.target.value)} className="bg-slate-700 text-white rounded-lg px-4 py-2">
+                        <option value="todos">Todos los meses</option>
+                        {obtenerMesesDisponibles().map(mes => (
+                          <option key={mes} value={mes}>{mes}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                      <div className="bg-gradient-to-br from-green-500 to-green-700 rounded-2xl p-6 text-white">
+                        <p className="mb-2">Balance USD</p>
+                        <p className="text-3xl font-bold">${balance.usd.toFixed(2)}</p>
+                      </div>
+                      <div className="bg-gradient-to-br from-blue-500 to-blue-700 rounded-2xl p-6 text-white">
+                        <p className="mb-2">Balance USDT</p>
+                        <p className="text-3xl font-bold">{balance.usdt.toFixed(2)}</p>
+                      </div>
+                      <div className="bg-gradient-to-br from-yellow-500 to-orange-600 rounded-2xl p-6 text-white">
+                        <p className="mb-2">Balance BS</p>
+                        <p className="text-3xl font-bold">{balance.bs.toFixed(2)}</p>
+                      </div>
+                      <div className="bg-gradient-to-br from-purple-500 to-purple-700 rounded-2xl p-6 text-white">
+                        <p className="mb-2">Mis Transacciones</p>
+                        <p className="text-3xl font-bold">{transacciones.length}</p>
+                      </div>
+                    </div>
+
+                    <div className={`${temaActual.tarjeta} backdrop-blur-lg rounded-2xl p-6`}>
+                      <h2 className="text-2xl font-bold mb-4">Resumen del Período</h2>
+                      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                        <div className="bg-green-500/20 rounded-lg p-4 border border-green-500/50">
+                          <p className="text-sm">Ingresos</p>
+                          <p className="text-2xl font-bold text-green-400">${resumen.ingresos.toFixed(2)}</p>
+                        </div>
+                        <div className="bg-red-500/20 rounded-lg p-4 border border-red-500/50">
+                          <p className="text-sm">Gastos</p>
+                          <p className="text-2xl font-bold text-red-400">${resumen.gastos.toFixed(2)}</p>
+                        </div>
+                        <div className="bg-blue-500/20 rounded-lg p-4 border border-blue-500/50">
+                          <p className="text-sm">Compras</p>
+                          <p className="text-2xl font-bold text-blue-400">${resumen.compras.toFixed(2)}</p>
+                        </div>
+                        <div className="bg-yellow-500/20 rounded-lg p-4 border border-yellow-500/50">
+                          <p className="text-sm">Ventas</p>
+                          <p className="text-2xl font-bold text-yellow-400">${resumen.ventas.toFixed(2)}</p>
+                        </div>
+                        <div className={`rounded-lg p-4 border ${resumen.balance >= 0 ? 'bg-green-500/20 border-green-500/50' : 'bg-red-500/20 border-red-500/50'}`}>
+                          <p className="text-sm">Balance</p>
+                          <p className={`text-2xl font-bold ${resumen.balance >= 0 ? 'text-green-400' : 'text-red-400'}`}>${resumen.balance.toFixed(2)}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className={`${temaActual.tarjeta} backdrop-blur-lg rounded-2xl p-6`}>
+                      <h2 className="text-2xl font-bold mb-4">Top Categorías</h2>
+                      <div className="space-y-3">
+                        {categorias.slice(0, 5).map(([cat, monto], i) => (
+                          <div key={cat} className="flex justify-between items-center bg-slate-700/50 rounded-lg p-4">
+                            <span className="font-semibold">{i + 1}. {cat}</span>
+                            <span className="text-lg font-bold">${monto.toFixed(2)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {vista === 'transacciones' && (
+                  <div className={`${temaActual.tarjeta} backdrop-blur-lg rounded-2xl p-6`}>
+                    <h2 className="text-2xl font-bold mb-4">Mi Historial de Transacciones</h2>
+                    <div className="overflow-x-auto">
+                      <table className="w-full">
+                        <thead>
+                          <tr className="border-b border-white/20">
+                            <th className="text-left p-3">Fecha</th>
+                            <th className="text-left p-3">Tipo</th>
+                            <th className="text-left p-3">Detalles</th>
+                            <th className="text-right p-3">Monto</th>
+                            <th className="text-center p-3">Acción</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {obtenerTransaccionesFiltradas().map(t => (
+                            <tr key={t.id} className="border-b border-white/10 hover:bg-white/5">
+                              <td className="p-3">{t.fecha}</td>
+                              <td className="p-3">
+                                <span className={`px-2 py-1 rounded text-sm ${
+                                  t.tipo === 'Ingreso' ? 'bg-green-500/20 text-green-400' :
+                                  t.tipo === 'Gasto' ? 'bg-red-500/20 text-red-400' :
+                                  t.tipo === 'Compra' ? 'bg-blue-500/20 text-blue-400' :
+                                  'bg-yellow-500/20 text-yellow-400'
+                                }`}>
+                                  {t.tipo}
+                                  {t.importado && <span className="ml-1">📥</span>}
+                                </span>
+                              </td>
+                              <td className="p-3">
+                                {t.tipo === 'Compra' && t.cliente ? (
+                                  <div className="space-y-1">
+                                    <p className="font-semibold">Cliente: {t.cliente}</p>
+                                    <p className="text-sm">Status: <span className={t.status === 'Pagado' ? 'text-green-400' : 'text-yellow-400'}>{t.status}</span></p>
+                                    <p className="text-sm">Operador: {t.operador}</p>
+                                    <p className="text-sm">Tasa: {t.tasa} Bs - Compra: {t.compraBs.toFixed(2)} Bs</p>
+                                    <p className="text-sm text-green-400">Ganancia: {t.gananciaBs.toFixed(2)} Bs (${t.gananciaDolar.toFixed(2)})</p>
+                                    {t.importado && <p className="text-xs text-blue-400">Importado desde Excel</p>}
+                                  </div>
+                                ) : t.tipo === 'Gasto' && t.gastoDolar !== undefined ? (
+                                  <div className="space-y-1">
+                                    <p className="font-semibold">{t.descripcion}</p>
+                                    <p className="text-sm">Categoría: {t.categoria} | Cuenta: {t.cuenta}</p>
+                                    <p className="text-sm">Total: {t.total ? t.total.toFixed(2) : t.monto.toFixed(2)} {t.moneda}</p>
+                                    <p className="text-sm text-red-400">Gasto en $: ${t.gastoDolar.toFixed(2)}</p>
+                                  </div>
+                                ) : (
+                                  <div>
+                                    <p className="font-semibold">{t.descripcion}</p>
+                                    <p className="text-sm opacity-75">{t.categoria}</p>
+                                  </div>
+                                )}
+                              </td>
+                              <td className="p-3 text-right font-semibold">
+                                <span className={t.tipo === 'Ingreso' || t.tipo === 'Venta' ? 'text-green-400' : t.tipo === 'Compra' ? 'text-blue-400' : 'text-red-400'}>
+                                  {t.tipo === 'Compra' && t.compraDolar ? (
+                                    `${t.compraDolar.toFixed(2)}`
+                                  ) : (
+                                    <>
+                                      {t.tipo === 'Ingreso' || t.tipo === 'Venta' ? '+' : '-'}{Math.abs(t.monto).toFixed(2)} {t.moneda}
+                                    </>
+                                  )}
+                                </span>
+                              </td>
+                              <td className="p-3 text-center">
+                                <button onClick={() => eliminar(t.id)} className="text-red-400 hover:text-red-300">✕</button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {vista === 'porCobrar' && (
+                  <div className="space-y-6">
+                    {/* Resumen total */}
+                    <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                      <div className="bg-gradient-to-br from-orange-500 to-red-600 rounded-2xl p-6 text-white">
+                        <p className="text-sm mb-2">Transacciones</p>
+                        <p className="text-3xl font-bold">{calcularTotalPorCobrar().cantidad}</p>
+                      </div>
+                      <div className="bg-gradient-to-br from-yellow-500 to-orange-600 rounded-2xl p-6 text-white">
+                        <p className="text-sm mb-2">Total en Bs</p>
+                        <p className="text-2xl font-bold">{calcularTotalPorCobrar().totalBs.toFixed(2)}</p>
+                      </div>
+                      <div className="bg-gradient-to-br from-blue-500 to-blue-700 rounded-2xl p-6 text-white">
+                        <p className="text-sm mb-2">Total en USD</p>
+                        <p className="text-3xl font-bold">${calcularTotalPorCobrar().totalUsd.toFixed(2)}</p>
+                      </div>
+                      <div className="bg-gradient-to-br from-green-500 to-green-700 rounded-2xl p-6 text-white">
+                        <p className="text-sm mb-2">Ganancia Bs</p>
+                        <p className="text-2xl font-bold">{calcularTotalPorCobrar().totalGananciaBs.toFixed(2)}</p>
+                      </div>
+                      <div className="bg-gradient-to-br from-emerald-500 to-teal-600 rounded-2xl p-6 text-white">
+                        <p className="text-sm mb-2">Ganancia USD</p>
+                        <p className="text-3xl font-bold">${calcularTotalPorCobrar().totalGananciaUsd.toFixed(2)}</p>
+                      </div>
+                    </div>
+
+                    {/* Filtros */}
+                    <div className={`${temaActual.tarjeta} backdrop-blur-lg rounded-2xl p-6`}>
+                      <h2 className="text-2xl font-bold mb-4">🔍 Filtros</h2>
+                      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
+                        <div>
+                          <label className="block text-sm mb-2 font-semibold">Cliente</label>
+                          <select
+                            value={filtrosPorCobrar.cliente}
+                            onChange={e => setFiltrosPorCobrar({...filtrosPorCobrar, cliente: e.target.value})}
+                            className="w-full bg-slate-700 text-white rounded-lg px-4 py-2"
+                          >
+                            <option value="todos">Todos los clientes</option>
+                            {obtenerClientesUnicos().map(cliente => (
+                              <option key={cliente} value={cliente}>{cliente}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="block text-sm mb-2 font-semibold">Status</label>
+                          <select
+                            value={filtrosPorCobrar.status}
+                            onChange={e => setFiltrosPorCobrar({...filtrosPorCobrar, status: e.target.value})}
+                            className="w-full bg-slate-700 text-white rounded-lg px-4 py-2"
+                          >
+                            <option value="todos">Todos</option>
+                            <option value="Por Cobrar">Por Cobrar</option>
+                            <option value="Pagado">Pagado</option>
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="block text-sm mb-2 font-semibold">Operador</label>
+                          <select
+                            value={filtrosPorCobrar.operador}
+                            onChange={e => setFiltrosPorCobrar({...filtrosPorCobrar, operador: e.target.value})}
+                            className="w-full bg-slate-700 text-white rounded-lg px-4 py-2"
+                          >
+                            <option value="todos">Todos los operadores</option>
+                            {obtenerOperadoresUnicos().map(operador => (
+                              <option key={operador} value={operador}>{operador}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="block text-sm mb-2 font-semibold">Fecha Inicio</label>
+                          <input
+                            type="date"
+                            value={filtrosPorCobrar.fechaInicio}
+                            onChange={e => setFiltrosPorCobrar({...filtrosPorCobrar, fechaInicio: e.target.value})}
+                            className="w-full bg-slate-700 text-white rounded-lg px-4 py-2"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-sm mb-2 font-semibold">Fecha Fin</label>
+                          <input
+                            type="date"
+                            value={filtrosPorCobrar.fechaFin}
+                            onChange={e => setFiltrosPorCobrar({...filtrosPorCobrar, fechaFin: e.target.value})}
+                            className="w-full bg-slate-700 text-white rounded-lg px-4 py-2"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="mt-4">
+                        <button
+                          onClick={() => setFiltrosPorCobrar({
+                            cliente: 'todos',
+                            status: 'Por Cobrar',
+                            fechaInicio: '',
+                            fechaFin: '',
+                            operador: 'todos'
+                          })}
+                          className="bg-slate-600 hover:bg-slate-700 text-white px-6 py-2 rounded-lg"
+                        >
+                          Limpiar Filtros
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Resumen por cliente */}
+                    <div className={`${temaActual.tarjeta} backdrop-blur-lg rounded-2xl p-6`}>
+                      <h2 className="text-2xl font-bold mb-4">👥 Resumen por Cliente</h2>
+                      <div className="overflow-x-auto">
+                        <table className="w-full">
+                          <thead>
+                            <tr className="border-b border-white/20">
+                              <th className="text-left p-3">Cliente</th>
+                              <th className="text-center p-3">Operaciones</th>
+                              <th className="text-right p-3">Total Bs</th>
+                              <th className="text-right p-3">Total USD</th>
+                              <th className="text-right p-3">Por Cobrar</th>
+                              <th className="text-right p-3">Pagado</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {obtenerResumenPorCliente().map(resumen => (
+                              <tr key={resumen.cliente} className="border-b border-white/10 hover:bg-white/5">
+                                <td className="p-3 font-semibold">{resumen.cliente}</td>
+                                <td className="p-3 text-center">{resumen.cantidad}</td>
+                                <td className="p-3 text-right">{resumen.totalBs.toFixed(2)} Bs</td>
+                                <td className="p-3 text-right font-semibold text-blue-400">${resumen.totalUsd.toFixed(2)}</td>
+                                <td className="p-3 text-right">
+                                  <span className="text-orange-400 font-bold">${resumen.porCobrar.toFixed(2)}</span>
+                                </td>
+                                <td className="p-3 text-right">
+                                  <span className="text-green-400 font-bold">${resumen.pagado.toFixed(2)}</span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    {/* Lista detallada */}
+                    <div className={`${temaActual.tarjeta} backdrop-blur-lg rounded-2xl p-6`}>
+                      <h2 className="text-2xl font-bold mb-4">📋 Detalle de Transacciones</h2>
+                      <div className="overflow-x-auto">
+                        <table className="w-full">
+                          <thead>
+                            <tr className="border-b border-white/20">
+                              <th className="text-left p-3">Fecha</th>
+                              <th className="text-left p-3">Cliente</th>
+                              <th className="text-left p-3">Operador</th>
+                              <th className="text-center p-3">Status</th>
+                              <th className="text-right p-3">Compra Bs</th>
+                              <th className="text-right p-3">Tasa</th>
+                              <th className="text-right p-3">Compra USD</th>
+                              <th className="text-right p-3">Ganancia</th>
+                              <th className="text-center p-3">Acción</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {obtenerComprasFiltradas().map(compra => (
+                              <tr key={compra.id} className="border-b border-white/10 hover:bg-white/5">
+                                <td className="p-3">{compra.fecha}</td>
+                                <td className="p-3 font-semibold">{compra.cliente}</td>
+                                <td className="p-3">{compra.operador}</td>
+                                <td className="p-3 text-center">
+                                  <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                                    compra.status === 'Pagado' 
+                                      ? 'bg-green-500/20 text-green-400 border border-green-500' 
+                                      : 'bg-orange-500/20 text-orange-400 border border-orange-500'
+                                  }`}>
+                                    {compra.status}
+                                  </span>
+                                </td>
+                                <td className="p-3 text-right">{compra.compraBs.toFixed(2)} Bs</td>
+                                <td className="p-3 text-right">{compra.tasa.toFixed(2)}</td>
+                                <td className="p-3 text-right font-bold text-blue-400">${compra.compraDolar.toFixed(2)}</td>
+                                <td className="p-3 text-right">
+                                  <div className="text-sm">
+                                    <div className="text-green-400 font-semibold">{compra.gananciaBs.toFixed(2)} Bs</div>
+                                    <div className="text-green-300">${compra.gananciaDolar.toFixed(2)}</div>
+                                  </div>
+                                </td>
+                                <td className="p-3 text-center">
+                                  <button 
+                                    onClick={async () => {
+                                      const nuevoStatus = compra.status === 'Pagado' ? 'Por Cobrar' : 'Pagado';
+                                      if (window.confirm(`¿Cambiar status a "${nuevoStatus}"?`)) {
+                                        await db.collection('transacciones').doc(compra.id).update({
+                                          status: nuevoStatus
+                                        });
+                                      }
+                                    }}
+                                    className={`px-3 py-1 rounded text-xs font-semibold ${
+                                      compra.status === 'Pagado'
+                                        ? 'bg-orange-600 hover:bg-orange-700'
+                                        : 'bg-green-600 hover:bg-green-700'
+                                    } text-white`}
+                                  >
+                                    {compra.status === 'Pagado' ? 'Marcar Por Cobrar' : 'Marcar Pagado'}
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {vista === 'graficos' && (
+                  <div className={`${temaActual.tarjeta} backdrop-blur-lg rounded-2xl p-6`}>
+                    <h2 className="text-2xl font-bold mb-4">Análisis por Categoría</h2>
+                    <div className="max-w-2xl mx-auto">
+                      <canvas ref={chartRef}></canvas>
+                    </div>
+                  </div>
+                )}
+
+                {vista === 'calendario' && (
+                  <div className={`${temaActual.tarjeta} backdrop-blur-lg rounded-2xl p-6`}>
+                    <h2 className="text-2xl font-bold mb-4">📅 Vista de Calendario</h2>
+                    <div className="space-y-4">
+                      {obtenerTransaccionesFiltradas().slice(0, 20).map(t => (
+                        <div key={t.id} className="flex items-center gap-4 p-4 bg-slate-700/50 rounded-lg">
+                          <div className="text-center">
+                            <div className="text-2xl font-bold">{new Date(t.fecha).getDate()}</div>
+                            <div className="text-xs">{new Date(t.fecha).toLocaleDateString('es', {month: 'short'})}</div>
+                          </div>
+                          <div className="flex-1">
+                            <p className="font-semibold">{t.descripcion}</p>
+                            <p className="text-sm opacity-75">{t.categoria}</p>
+                          </div>
+                          <div className={`text-xl font-bold ${t.tipo === 'Ingreso' || t.tipo === 'Venta' ? 'text-green-400' : 'text-red-400'}`}>
+                            {t.tipo === 'Ingreso' || t.tipo === 'Venta' ? '+' : '-'}{Math.abs(t.monto).toFixed(2)} {t.moneda}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {vista === 'tasas' && (
+                  <div className={`${temaActual.tarjeta} backdrop-blur-lg rounded-2xl p-6`}>
+                    <h2 className="text-2xl font-bold mb-4">💱 Mis Configuraciones de Tasas</h2>
+                    
+                    <div className="space-y-6">
+                      <div>
+                        <h3 className="text-lg font-bold mb-3">Tasas de Cambio General</h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-sm mb-2">USD a BS</label>
+                            <input
+                              type="number"
+                              step="0.01"
+                              value={tasaCambio.usdToBs}
+                              onChange={e => setTasaCambio({...tasaCambio, usdToBs: parseFloat(e.target.value)})}
+                              className="w-full bg-slate-700 text-white rounded-lg px-4 py-2"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm mb-2">USDT a USD</label>
+                            <input
+                              type="number"
+                              step="0.0001"
+                              value={tasaCambio.usdtToUsd}
+                              onChange={e => setTasaCambio({...tasaCambio, usdtToUsd: parseFloat(e.target.value)})}
+                              className="w-full bg-slate-700 text-white rounded-lg px-4 py-2"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="bg-green-500/20 border border-green-500 rounded-lg p-4">
+                        <h3 className="text-lg font-bold mb-3 text-green-400">Tasa de Venta (Para Cálculo de Ganancias y Gastos)</h3>
+                        <div>
+                          <label className="block text-sm mb-2">Precio de Venta por Dólar (en Bs)</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={tasaVenta}
+                            onChange={e => setTasaVenta(parseFloat(e.target.value))}
+                            className="w-full bg-slate-700 text-white rounded-lg px-4 py-2"
+                            placeholder="37.00"
+                          />
+                          <p className="text-xs text-green-300 mt-2">Esta tasa se usa para calcular las ganancias en las compras de divisas y para convertir los gastos a dólares</p>
+                        </div>
+                      </div>
+
+                      <div className="bg-blue-500/20 border border-blue-500 rounded-lg p-4">
+                        <p className="text-sm text-blue-200">
+                          📝 <strong>Nota:</strong> Las transacciones importadas desde Excel usan las tasas que vienen en el archivo. Las nuevas transacciones usarán estas tasas configuradas.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex gap-4 mt-6">
+                      <button
+                        onClick={actualizarTasas}
+                        className={`flex-1 ${temaActual.boton} text-white px-6 py-3 rounded-lg font-semibold`}
+                      >
+                        Guardar Tasas de Cambio
+                      </button>
+                      <button
+                        onClick={async () => {
+                          try {
+                            await db.collection('usuarios')
+                              .doc(usuario.uid)
+                              .collection('configuracion')
+                              .doc('tasaVenta')
+                              .set({ valor: tasaVenta });
+                            alert('Tasa de venta actualizada correctamente');
+                          } catch (error) {
+                            alert('Error: ' + error.message);
+                          }
+                        }}
+                        className="flex-1 bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg font-semibold"
+                      >
+                        Guardar Tasa de Venta
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {vista === 'temas' && (
+                  <div className={`${temaActual.tarjeta} backdrop-blur-lg rounded-2xl p-6`}>
+                    <h2 className="text-2xl font-bold mb-4">🎨 Seleccionar Tema</h2>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      {Object.entries(temas).map(([key, t]) => (
+                        <button
+                          key={key}
+                          onClick={() => setTema(key)}
+                          className={`p-6 rounded-2xl border-4 ${tema === key ? 'border-white' : 'border-transparent'} bg-gradient-to-br ${t.primario}`}
+                        >
+                          <p className="text-white font-bold">{t.nombre}</p>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+              </div>
+            </div>
+          );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>

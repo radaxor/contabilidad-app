@@ -1,0 +1,344 @@
+/* src/App.css */
+
+.app-container {
+  min-height: 100vh;
+  padding: 1rem;
+}
+
+.app-content {
+  max-width: 1280px;
+  margin: 0 auto;
+}
+
+.vista-container {
+  margin-top: 1.5rem;
+}
+
+.vista-card {
+  border-radius: 1rem;
+  padding: 1.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(10px);
+}
+
+.vista-card h2 {
+  font-size: 1.5rem;
+  font-weight: bold;
+  margin-bottom: 1.5rem;
+  margin-top: 0;
+}
+
+/* Dashboard Stats */
+.dashboard-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+.stat-card {
+  background: rgba(255, 255, 255, 0.05);
+  padding: 1.5rem;
+  border-radius: 0.75rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.stat-card h3 {
+  font-size: 0.875rem;
+  margin: 0 0 0.5rem 0;
+  opacity: 0.8;
+}
+
+.stat-value {
+  font-size: 2rem;
+  font-weight: bold;
+  margin: 0;
+}
+
+.text-green {
+  color: #10b981;
+}
+
+.text-blue {
+  color: #3b82f6;
+}
+
+.text-yellow {
+  color: #f59e0b;
+}
+
+/* Transacciones Lista */
+.empty-state {
+  text-align: center;
+  padding: 3rem;
+  opacity: 0.7;
+}
+
+.transacciones-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.transaccion-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 0.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.transaccion-info {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.tipo-badge {
+  padding: 0.25rem 0.75rem;
+  border-radius: 0.25rem;
+  font-size: 0.75rem;
+  font-weight: bold;
+}
+
+.tipo-ingreso {
+  background: rgba(16, 185, 129, 0.2);
+  color: #10b981;
+}
+
+.tipo-gasto {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+}
+
+.tipo-compra {
+  background: rgba(59, 130, 246, 0.2);
+  color: #3b82f6;
+}
+
+.tipo-venta {
+  background: rgba(245, 158, 11, 0.2);
+  color: #f59e0b;
+}
+
+.fecha {
+  font-size: 0.875rem;
+  opacity: 0.7;
+}
+
+.descripcion {
+  font-weight: 500;
+}
+
+.transaccion-monto {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.monto {
+  font-size: 1.125rem;
+  font-weight: bold;
+}
+
+.monto.positivo {
+  color: #10b981;
+}
+
+.monto.negativo {
+  color: #ef4444;
+}
+
+.btn-delete {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1.25rem;
+  opacity: 0.6;
+  transition: opacity 0.2s;
+}
+
+.btn-delete:hover {
+  opacity: 1;
+}
+
+/* Temas Grid */
+.temas-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+.tema-button {
+  padding: 2rem 1.5rem;
+  border-radius: 1rem;
+  border: 4px solid transparent;
+  cursor: pointer;
+  transition: all 0.2s;
+  color: white;
+  font-weight: bold;
+  text-align: center;
+}
+
+.tema-button:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+}
+
+.tema-active {
+  border-color: white;
+  box-shadow: 0 8px 24px rgba(255, 255, 255, 0.2);
+}
+
+.tema-nombre {
+  font-size: 1.25rem;
+  margin: 0 0 0.5rem 0;
+}
+
+.tema-descripcion {
+  font-size: 0.875rem;
+  margin: 0;
+  opacity: 0.8;
+}
+
+/* Tasas Form */
+.tasas-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 1.5rem;
+  margin-top: 1.5rem;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.form-group label {
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.input-tasa {
+  padding: 0.75rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 0.5rem;
+  color: white;
+  font-size: 1rem;
+}
+
+.input-tasa:focus {
+  outline: none;
+  border-color: #8b5cf6;
+}
+
+/* Modal */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  padding: 1rem;
+  animation: fadeIn 0.2s;
+}
+
+.modal-content {
+  background-color: #1e293b;
+  border-radius: 1rem;
+  padding: 2rem;
+  max-width: 40rem;
+  width: 100%;
+  color: white;
+  animation: slideIn 0.3s;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+}
+
+.modal-header h2 {
+  font-size: 1.5rem;
+  margin: 0;
+}
+
+.btn-close {
+  background: none;
+  border: none;
+  color: white;
+  font-size: 2rem;
+  cursor: pointer;
+  line-height: 1;
+  opacity: 0.7;
+  transition: opacity 0.2s;
+}
+
+.btn-close:hover {
+  opacity: 1;
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateY(-20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .app-container {
+    padding: 0.5rem;
+  }
+  
+  .vista-card {
+    padding: 1rem;
+  }
+  
+  .dashboard-stats {
+    grid-template-columns: 1fr;
+  }
+  
+  .transaccion-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+  
+  .transaccion-monto {
+    width: 100%;
+    justify-content: space-between;
+  }
+  
+  .temas-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .tasas-form {
+    grid-template-columns: 1fr;
+  }
+}

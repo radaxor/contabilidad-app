@@ -1,0 +1,231 @@
+/* src/styles/global.css */
+
+/* Reset y base */
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+  
+  html, body {
+    height: 100%;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+      'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+      sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  
+  #root {
+    min-height: 100%;
+  }
+  
+  /* Scroll suave */
+  html {
+    scroll-behavior: smooth;
+  }
+  
+  /* Scrollbar personalizado */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  
+  ::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.1);
+    border-radius: 10px;
+  }
+  
+  ::-webkit-scrollbar-thumb {
+    background: rgba(139, 92, 246, 0.5);
+    border-radius: 10px;
+  }
+  
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(139, 92, 246, 0.7);
+  }
+  
+  /* Utilidades de Tailwind simuladas */
+  .bg-gradient-to-br {
+    background-image: linear-gradient(to bottom right, var(--tw-gradient-stops));
+  }
+  
+  .from-slate-900 {
+    --tw-gradient-from: #0f172a;
+    --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to, rgba(15, 23, 42, 0));
+  }
+  
+  .via-purple-900 {
+    --tw-gradient-stops: var(--tw-gradient-from), #581c87, var(--tw-gradient-to, rgba(88, 28, 135, 0));
+  }
+  
+  .to-slate-900 {
+    --tw-gradient-to: #0f172a;
+  }
+  
+  .from-blue-50 {
+    --tw-gradient-from: #eff6ff;
+    --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to, rgba(239, 246, 255, 0));
+  }
+  
+  .via-white {
+    --tw-gradient-stops: var(--tw-gradient-from), #ffffff, var(--tw-gradient-to, rgba(255, 255, 255, 0));
+  }
+  
+  .to-blue-50 {
+    --tw-gradient-to: #eff6ff;
+  }
+  
+  .from-green-900 {
+    --tw-gradient-from: #14532d;
+    --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to, rgba(20, 83, 45, 0));
+  }
+  
+  .via-teal-900 {
+    --tw-gradient-stops: var(--tw-gradient-from), #134e4a, var(--tw-gradient-to, rgba(19, 78, 74, 0));
+  }
+  
+  .to-green-900 {
+    --tw-gradient-to: #14532d;
+  }
+  
+  .from-orange-900 {
+    --tw-gradient-from: #7c2d12;
+    --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to, rgba(124, 45, 18, 0));
+  }
+  
+  .via-red-900 {
+    --tw-gradient-stops: var(--tw-gradient-from), #7f1d1d, var(--tw-gradient-to, rgba(127, 29, 29, 0));
+  }
+  
+  .to-orange-900 {
+    --tw-gradient-to: #7c2d12;
+  }
+  
+  .from-blue-900 {
+    --tw-gradient-from: #1e3a8a;
+    --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to, rgba(30, 58, 138, 0));
+  }
+  
+  .via-indigo-900 {
+    --tw-gradient-stops: var(--tw-gradient-from), #312e81, var(--tw-gradient-to, rgba(49, 46, 129, 0));
+  }
+  
+  .to-blue-900 {
+    --tw-gradient-to: #1e3a8a;
+  }
+  
+  .from-purple-900 {
+    --tw-gradient-from: #581c87;
+    --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to, rgba(88, 28, 135, 0));
+  }
+  
+  .via-pink-900 {
+    --tw-gradient-stops: var(--tw-gradient-from), #831843, var(--tw-gradient-to, rgba(131, 24, 67, 0));
+  }
+  
+  .to-purple-900 {
+    --tw-gradient-to: #581c87;
+  }
+  
+  /* Colores de texto */
+  .text-white {
+    color: #ffffff;
+  }
+  
+  .text-gray-900 {
+    color: #111827;
+  }
+  
+  /* Fondos */
+  .bg-white\/10 {
+    background-color: rgba(255, 255, 255, 0.1);
+  }
+  
+  .bg-white {
+    background-color: #ffffff;
+  }
+  
+  /* Sombras */
+  .shadow-lg {
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  }
+  
+  /* Backdrop blur */
+  .backdrop-blur-lg {
+    backdrop-filter: blur(16px);
+  }
+  
+  /* Opacidad */
+  .opacity-75 {
+    opacity: 0.75;
+  }
+  
+  .opacity-50 {
+    opacity: 0.5;
+  }
+  
+  /* Hover effects */
+  .bg-purple-600 {
+    background-color: #9333ea;
+  }
+  
+  .hover\:bg-purple-700:hover {
+    background-color: #7e22ce;
+  }
+  
+  .bg-blue-600 {
+    background-color: #2563eb;
+  }
+  
+  .hover\:bg-blue-700:hover {
+    background-color: #1d4ed8;
+  }
+  
+  .bg-green-600 {
+    background-color: #16a34a;
+  }
+  
+  .hover\:bg-green-700:hover {
+    background-color: #15803d;
+  }
+  
+  .bg-orange-600 {
+    background-color: #ea580c;
+  }
+  
+  .hover\:bg-orange-700:hover {
+    background-color: #c2410c;
+  }
+  
+  /* Animaciones */
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(-10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  
+  .animate-fade-in {
+    animation: fadeIn 0.3s ease-out;
+  }
+  
+  /* Transiciones */
+  button, a, .transition {
+    transition: all 0.2s ease;
+  }
+  
+  /* Focus states */
+  button:focus, input:focus, select:focus, textarea:focus {
+    outline: none;
+  }
+  
+  /* Disabled state */
+  button:disabled, input:disabled, select:disabled, textarea:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
