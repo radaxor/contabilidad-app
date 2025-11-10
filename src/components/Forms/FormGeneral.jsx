@@ -1,5 +1,5 @@
 import React from 'react';
-import { CUENTAS_GENERAL, MONEDAS } from '../../config/constants';
+import { CUENTAS_GENERAL, } from '../../config/constants';
 
 const FormGeneral = ({ form, setForm }) => {
   return (

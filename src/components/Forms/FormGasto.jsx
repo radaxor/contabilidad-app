@@ -1,5 +1,5 @@
 // src/components/Forms/FormGasto.jsx
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { obtenerTasaParaGasto } from '../../services/tasaVenta.service';
 
 const FormGasto = ({ formGasto, setFormGasto, usuario, onSolicitarVenta }) => {
@@ -8,17 +8,38 @@ const FormGasto = ({ formGasto, setFormGasto, usuario, onSolicitarVenta }) => {
   const [tasaManual, setTasaManual] = useState('');
   const [usarTasaManual, setUsarTasaManual] = useState(false);
 
-  // Buscar tasa cuando cambia la fecha
+  // Desestructuramos para dependencias estables
+  const { fecha, moneda, monto } = formGasto;
+  const uid = usuario?.uid;
+
+  // 1) Memoriza la función que calcula (evita re-crearla en cada render)
+  const calcularGasto = useCallback((tasa) => {
+    const montoNum = parseFloat(monto) || 0;
+    let gastoDolar = 0;
+
+    if (moneda === 'Bs') {
+      gastoDolar = tasa > 0 ? montoNum / tasa : 0;
+    } else {
+      gastoDolar = montoNum;
+    }
+
+    setFormGasto(prev => ({
+      ...prev,
+      gastoDolar,
+      tasaUsada: tasa
+    }));
+  }, [monto, moneda, setFormGasto]);
+
+  // 2) Buscar tasa cuando cambian fecha o usuario
   useEffect(() => {
     const buscarTasa = async () => {
-      if (!formGasto.fecha || !usuario) return;
+      if (!fecha || !uid) return;
 
       setCargandoTasa(true);
-      const resultado = await obtenerTasaParaGasto(formGasto.fecha, usuario.uid);
+      const resultado = await obtenerTasaParaGasto(fecha, uid);
       setInfoTasa(resultado);
       setCargandoTasa(false);
 
-      // Si requiere input manual, activar modo manual
       if (resultado.requiereInput) {
         setUsarTasaManual(true);
         setTasaManual('');
@@ -29,38 +50,19 @@ const FormGasto = ({ formGasto, setFormGasto, usuario, onSolicitarVenta }) => {
     };
 
     buscarTasa();
-  }, [formGasto.fecha, usuario]);
+  }, [fecha, uid, calcularGasto]); // ← incluir calcularGasto resuelve el warning
 
-  // Calcular gasto en dólares cuando cambia el monto o la tasa
+  // 3) Recalcular cuando cambian tasa manual o infoTasa
   useEffect(() => {
     if (usarTasaManual && tasaManual) {
       calcularGasto(parseFloat(tasaManual));
     } else if (infoTasa?.tasa) {
       calcularGasto(infoTasa.tasa);
     }
-  }, [formGasto.monto, tasaManual, usarTasaManual]);
-
-  const calcularGasto = (tasa) => {
-    const monto = parseFloat(formGasto.monto) || 0;
-    let gastoDolar = 0;
-
-    if (formGasto.moneda === 'Bs') {
-      gastoDolar = tasa > 0 ? monto / tasa : 0;
-    } else {
-      gastoDolar = monto;
-    }
-
-    setFormGasto(prev => ({
-      ...prev,
-      gastoDolar: gastoDolar,
-      tasaUsada: tasa
-    }));
-  };
+  }, [usarTasaManual, tasaManual, infoTasa?.tasa, calcularGasto]);
 
   const handleActualizarTasa = () => {
-    if (onSolicitarVenta) {
-      onSolicitarVenta();
-    }
+    if (onSolicitarVenta) onSolicitarVenta();
   };
 
   return (
@@ -68,12 +70,12 @@ const FormGasto = ({ formGasto, setFormGasto, usuario, onSolicitarVenta }) => {
       {/* Fecha */}
       <div>
         <label className="block text-sm mb-2 text-white">Fecha</label>
-        <input 
-          type="date" 
-          value={formGasto.fecha} 
-          onChange={e => setFormGasto({...formGasto, fecha: e.target.value})} 
-          className="w-full bg-slate-700 rounded px-4 py-2 text-white" 
-          required 
+        <input
+          type="date"
+          value={fecha}
+          onChange={e => setFormGasto({ ...formGasto, fecha: e.target.value })}
+          className="w-full bg-slate-700 rounded px-4 py-2 text-white"
+          required
         />
       </div>
 
@@ -84,7 +86,6 @@ const FormGasto = ({ formGasto, setFormGasto, usuario, onSolicitarVenta }) => {
         </div>
       ) : infoTasa && (
         <div>
-          {/* Tasa encontrada */}
           {infoTasa.estado === 'encontrada' && (
             <div className="bg-green-500/20 border border-green-500 rounded-lg p-4">
               <p className="text-green-300 text-sm font-semibold mb-2">✅ Tasa de venta encontrada</p>
@@ -95,7 +96,6 @@ const FormGasto = ({ formGasto, setFormGasto, usuario, onSolicitarVenta }) => {
             </div>
           )}
 
-          {/* Tasa reciente (último día) */}
           {infoTasa.estado === 'reciente' && (
             <div className="bg-blue-500/20 border border-blue-500 rounded-lg p-4">
               <p className="text-blue-300 text-sm font-semibold mb-2">ℹ️ Usando última tasa disponible</p>
@@ -107,7 +107,6 @@ const FormGasto = ({ formGasto, setFormGasto, usuario, onSolicitarVenta }) => {
             </div>
           )}
 
-          {/* Tasa desactualizada */}
           {infoTasa.estado === 'desactualizada' && (
             <div className="bg-orange-500/20 border border-orange-500 rounded-lg p-4">
               <p className="text-orange-300 text-sm font-semibold mb-2">⚠️ Tasa desactualizada</p>
@@ -125,7 +124,6 @@ const FormGasto = ({ formGasto, setFormGasto, usuario, onSolicitarVenta }) => {
             </div>
           )}
 
-          {/* Sin tasa */}
           {infoTasa.estado === 'sin_tasa' && (
             <div className="bg-red-500/20 border border-red-500 rounded-lg p-4">
               <p className="text-red-300 text-sm font-semibold mb-2">❌ Sin tasa de venta</p>
@@ -142,15 +140,14 @@ const FormGasto = ({ formGasto, setFormGasto, usuario, onSolicitarVenta }) => {
             </div>
           )}
 
-          {/* Fecha sin tasa (histórica) */}
           {infoTasa.estado === 'fecha_sin_tasa' && (
             <div className="bg-yellow-500/20 border border-yellow-500 rounded-lg p-4">
               <p className="text-yellow-300 text-sm font-semibold mb-2">📅 Fecha sin tasa registrada</p>
               <p className="text-white text-sm mb-3">{infoTasa.mensaje}</p>
-              
+
               <div>
                 <label className="block text-sm mb-2 text-white">Ingrese la tasa de venta de ese día:</label>
-                <input 
+                <input
                   type="number"
                   step="0.01"
                   value={tasaManual}
@@ -159,7 +156,9 @@ const FormGasto = ({ formGasto, setFormGasto, usuario, onSolicitarVenta }) => {
                   placeholder="Ej: 36.50"
                   required
                 />
-                <p className="text-xs text-gray-400 mt-1">Esta tasa se usará para calcular el gasto en dólares</p>
+                <p className="text-xs text-gray-400 mt-1">
+                  Esta tasa se usará para calcular el gasto en dólares
+                </p>
               </div>
             </div>
           )}
@@ -170,12 +169,12 @@ const FormGasto = ({ formGasto, setFormGasto, usuario, onSolicitarVenta }) => {
       <div>
         <label className="block text-sm mb-2 text-white">Descripción</label>
         <textarea
-          value={formGasto.descripcion} 
-          onChange={e => setFormGasto({...formGasto, descripcion: e.target.value})} 
-          className="w-full bg-slate-700 rounded px-4 py-2 text-white resize-none" 
+          value={formGasto.descripcion}
+          onChange={e => setFormGasto({ ...formGasto, descripcion: e.target.value })}
+          className="w-full bg-slate-700 rounded px-4 py-2 text-white resize-none"
           placeholder="Breve descripción del gasto"
           rows="3"
-          required 
+          required
         />
       </div>
 
@@ -183,9 +182,9 @@ const FormGasto = ({ formGasto, setFormGasto, usuario, onSolicitarVenta }) => {
       <div className="grid grid-cols-2 gap-4">
         <div>
           <label className="block text-sm mb-2 text-white">Categoría</label>
-          <select 
-            value={formGasto.categoria} 
-            onChange={e => setFormGasto({...formGasto, categoria: e.target.value})} 
+          <select
+            value={formGasto.categoria}
+            onChange={e => setFormGasto({ ...formGasto, categoria: e.target.value })}
             className="w-full bg-slate-700 rounded px-4 py-2 text-white"
           >
             <option>Varios</option>
@@ -202,9 +201,9 @@ const FormGasto = ({ formGasto, setFormGasto, usuario, onSolicitarVenta }) => {
         </div>
         <div>
           <label className="block text-sm mb-2 text-white">Cuenta</label>
-          <select 
-            value={formGasto.cuenta} 
-            onChange={e => setFormGasto({...formGasto, cuenta: e.target.value})} 
+          <select
+            value={formGasto.cuenta}
+            onChange={e => setFormGasto({ ...formGasto, cuenta: e.target.value })}
             className="w-full bg-slate-700 rounded px-4 py-2 text-white"
           >
             <option>Provincial</option>
@@ -219,9 +218,9 @@ const FormGasto = ({ formGasto, setFormGasto, usuario, onSolicitarVenta }) => {
       <div className="grid grid-cols-2 gap-4">
         <div>
           <label className="block text-sm mb-2 text-white">Moneda</label>
-          <select 
-            value={formGasto.moneda} 
-            onChange={e => setFormGasto({...formGasto, moneda: e.target.value})} 
+          <select
+            value={moneda}
+            onChange={e => setFormGasto({ ...formGasto, moneda: e.target.value })}
             className="w-full bg-slate-700 rounded px-4 py-2 text-white"
           >
             <option>Bs</option>
@@ -231,14 +230,14 @@ const FormGasto = ({ formGasto, setFormGasto, usuario, onSolicitarVenta }) => {
         </div>
         <div>
           <label className="block text-sm mb-2 text-white">Monto</label>
-          <input 
-            type="number" 
-            step="0.01" 
-            value={formGasto.monto} 
-            onChange={e => setFormGasto({...formGasto, monto: e.target.value})} 
-            className="w-full bg-slate-700 rounded px-4 py-2 text-white text-lg font-semibold" 
+          <input
+            type="number"
+            step="0.01"
+            value={monto}
+            onChange={e => setFormGasto({ ...formGasto, monto: e.target.value })}
+            className="w-full bg-slate-700 rounded px-4 py-2 text-white text-lg font-semibold"
             placeholder="0.00"
-            required 
+            required
             disabled={infoTasa?.requiereActualizacion}
           />
         </div>
@@ -248,9 +247,13 @@ const FormGasto = ({ formGasto, setFormGasto, usuario, onSolicitarVenta }) => {
       {!infoTasa?.requiereActualizacion && (infoTasa?.tasa || tasaManual) && (
         <div className="bg-gradient-to-r from-red-500 to-orange-500 rounded-lg p-4">
           <p className="text-sm text-red-100 mb-1">Gasto en $ (Calculado)</p>
-          <p className="text-3xl font-bold text-white">${formGasto.gastoDolar?.toFixed(2) || '0.00'}</p>
+          <p className="text-3xl font-bold text-white">
+            ${formGasto.gastoDolar?.toFixed(2) || '0.00'}
+          </p>
           <p className="text-xs text-red-100 mt-1">
-            {formGasto.moneda === 'Bs' ? `${formGasto.monto || 0} Bs ÷ ${usarTasaManual ? tasaManual : infoTasa?.tasa} = ` : ''}
+            {moneda === 'Bs'
+              ? `${monto || 0} Bs ÷ ${usarTasaManual ? tasaManual : infoTasa?.tasa} = `
+              : ''}
             ${formGasto.gastoDolar?.toFixed(2) || '0.00'}
           </p>
         </div>

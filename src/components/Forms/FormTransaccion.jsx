@@ -1,7 +1,7 @@
 // src/components/Forms/FormTransaccion.jsx
 import React, { useState, useEffect } from 'react';
 import { crearTransaccion } from '../../services/transacciones.service';
-import { calcularCompra, calcularGastoDolar } from '../../utils/calculos';
+import { calcularCompra} from '../../utils/calculos';
 import FormCompra from './FormCompra';
 import FormGasto from './FormGasto';
 import FormGeneral from './FormGeneral';

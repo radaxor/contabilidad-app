@@ -7,19 +7,19 @@ const Graficos = ({ transacciones, temaActual, tasaCambio }) => {
   const chartRef = useRef(null);
   const chartInstance = useRef(null);
 
-  // Obtener fecha actual
-  const hoy = new Date();
-  const inicioSemana = new Date(hoy);
-  inicioSemana.setDate(hoy.getDate() - hoy.getDay());
-  const inicioMes = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
-  const inicioAño = new Date(hoy.getFullYear(), 0, 1);
-
-  // Filtrar transacciones por periodo
+  // Filtrar transacciones por periodo (calcula fechas dentro del useMemo)
   const transaccionesFiltradas = useMemo(() => {
+    // Fechas base del periodo actual
+    const hoy = new Date();
+    const inicioSemana = new Date(hoy);
+    inicioSemana.setDate(hoy.getDate() - hoy.getDay());
+    const inicioMes = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+    const inicioAño = new Date(hoy.getFullYear(), 0, 1);
+
     let fechaInicio;
-    switch(periodoAnalisis) {
+    switch (periodoAnalisis) {
       case 'dia':
-        fechaInicio = new Date(hoy.setHours(0, 0, 0, 0));
+        fechaInicio = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
         break;
       case 'semana':
         fechaInicio = inicioSemana;
@@ -84,19 +84,13 @@ const Graficos = ({ transacciones, temaActual, tasaCambio }) => {
     transaccionesPorTipo.forEach(t => {
       const cat = t.categoria || 'Sin categoría';
       if (!categorias[cat]) {
-        categorias[cat] = {
-          nombre: cat,
-          total: 0,
-          cantidad: 0,
-          promedio: 0
-        };
+        categorias[cat] = { nombre: cat, total: 0, cantidad: 0, promedio: 0 };
       }
       const monto = Math.abs(parseFloat(t.monto) || 0);
       categorias[cat].total += monto;
       categorias[cat].cantidad++;
     });
 
-    // Calcular promedio
     Object.values(categorias).forEach(cat => {
       cat.promedio = cat.cantidad > 0 ? cat.total / cat.cantidad : 0;
     });
@@ -138,7 +132,7 @@ const Graficos = ({ transacciones, temaActual, tasaCambio }) => {
   const tendenciaMensual = useMemo(() => {
     const meses = {};
     const hoy = new Date();
-    
+
     // Inicializar últimos 12 meses
     for (let i = 11; i >= 0; i--) {
       const fecha = new Date(hoy.getFullYear(), hoy.getMonth() - i, 1);
@@ -150,30 +144,35 @@ const Graficos = ({ transacciones, temaActual, tasaCambio }) => {
       };
     }
 
-    transacciones.filter(t => t.tipo === tipoAnalisis.slice(0, -1).charAt(0).toUpperCase() + tipoAnalisis.slice(1, -1) || t.tipo === 'Gasto' || t.tipo === 'Compra').forEach(t => {
-      const fecha = new Date(t.fecha);
-      const key = `${fecha.getFullYear()}-${String(fecha.getMonth() + 1).padStart(2, '0')}`;
-      if (meses[key]) {
-        const monto = Math.abs(parseFloat(t.monto) || 0);
-        meses[key].total += monto;
-        meses[key].cantidad++;
+    // Suma por mes según tipo seleccionado (o todo si "general")
+    const esGasto = tipoAnalisis === 'gastos';
+    const esCompra = tipoAnalisis === 'compras';
+
+    transacciones.forEach(t => {
+      if (tipoAnalisis === 'general' || (esGasto && t.tipo === 'Gasto') || (esCompra && t.tipo === 'Compra')) {
+        const fecha = new Date(t.fecha);
+        const key = `${fecha.getFullYear()}-${String(fecha.getMonth() + 1).padStart(2, '0')}`;
+        if (meses[key]) {
+          const monto = Math.abs(parseFloat(t.monto) || 0);
+          meses[key].total += monto;
+          meses[key].cantidad++;
+        }
       }
     });
 
     return Object.values(meses);
   }, [transacciones, tipoAnalisis]);
 
-  // Crear gráfico
+  // Crear gráfico de categorías (Chart.js)
   useEffect(() => {
     if (!chartRef.current) return;
 
-    // Destruir gráfico anterior
     if (chartInstance.current) {
       chartInstance.current.destroy();
     }
 
     const ctx = chartRef.current.getContext('2d');
-    
+
     chartInstance.current = new Chart(ctx, {
       type: 'bar',
       data: {
@@ -196,14 +195,11 @@ const Graficos = ({ transacciones, temaActual, tasaCambio }) => {
           legend: {
             display: true,
             position: 'top',
-            labels: {
-              color: '#ffffff',
-              font: { size: 14 }
-            }
+            labels: { color: '#ffffff', font: { size: 14 } }
           },
           tooltip: {
             callbacks: {
-              label: function(context) {
+              label: function (context) {
                 return `$${context.parsed.y.toFixed(2)}`;
               }
             }
@@ -214,30 +210,20 @@ const Graficos = ({ transacciones, temaActual, tasaCambio }) => {
             beginAtZero: true,
             ticks: {
               color: '#ffffff',
-              callback: function(value) {
-                return '$' + value.toFixed(0);
-              }
+              callback: function (value) { return '$' + value.toFixed(0); }
             },
-            grid: {
-              color: 'rgba(255, 255, 255, 0.1)'
-            }
+            grid: { color: 'rgba(255, 255, 255, 0.1)' }
           },
           x: {
-            ticks: {
-              color: '#ffffff'
-            },
-            grid: {
-              color: 'rgba(255, 255, 255, 0.1)'
-            }
+            ticks: { color: '#ffffff' },
+            grid: { color: 'rgba(255, 255, 255, 0.1)' }
           }
         }
       }
     });
 
     return () => {
-      if (chartInstance.current) {
-        chartInstance.current.destroy();
-      }
+      if (chartInstance.current) chartInstance.current.destroy();
     };
   }, [porCategoria, tipoAnalisis]);
 
@@ -250,9 +236,8 @@ const Graficos = ({ transacciones, temaActual, tasaCambio }) => {
             <h2 className="text-2xl font-bold mb-2">📊 Análisis y Estadísticas</h2>
             <p className="text-sm opacity-75">Visualiza tus datos financieros</p>
           </div>
-          
+
           <div className="flex gap-3 flex-wrap">
-            {/* Selector de tipo */}
             <select
               value={tipoAnalisis}
               onChange={(e) => setTipoAnalisis(e.target.value)}
@@ -263,7 +248,6 @@ const Graficos = ({ transacciones, temaActual, tasaCambio }) => {
               <option value="general">📈 General</option>
             </select>
 
-            {/* Selector de periodo */}
             <select
               value={periodoAnalisis}
               onChange={(e) => setPeriodoAnalisis(e.target.value)}
@@ -327,8 +311,8 @@ const Graficos = ({ transacciones, temaActual, tasaCambio }) => {
             <div key={t.id} className="flex items-center justify-between bg-slate-700/50 rounded-lg p-4">
               <div className="flex items-center gap-4">
                 <div className={`text-2xl font-bold ${
-                  i === 0 ? 'text-yellow-400' : 
-                  i === 1 ? 'text-gray-400' : 
+                  i === 0 ? 'text-yellow-400' :
+                  i === 1 ? 'text-gray-400' :
                   i === 2 ? 'text-orange-600' : 'text-white'
                 }`}>
                   #{i + 1}
@@ -370,9 +354,9 @@ const Graficos = ({ transacciones, temaActual, tasaCambio }) => {
                 <tr key={cat.nombre} className="border-b border-white/10 hover:bg-white/5">
                   <td className="p-3">
                     <div className="flex items-center gap-2">
-                      <div 
+                      <div
                         className="w-4 h-4 rounded"
-                        style={{ 
+                        style={{
                           backgroundColor: [
                             '#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6',
                             '#06b6d4', '#ec4899', '#14b8a6', '#f97316', '#a855f7'
@@ -402,8 +386,8 @@ const Graficos = ({ transacciones, temaActual, tasaCambio }) => {
         <h3 className="text-xl font-bold mb-4">📅 Análisis por Día de la Semana</h3>
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
           {porDiaSemana.map((dia, i) => (
-            <div 
-              key={i} 
+            <div
+              key={i}
               className="bg-gradient-to-br from-indigo-500 to-indigo-700 rounded-xl p-4 text-white text-center"
             >
               <p className="text-sm mb-2">{dia.nombre}</p>
@@ -422,11 +406,11 @@ const Graficos = ({ transacciones, temaActual, tasaCambio }) => {
             {tendenciaMensual.map((mes, i) => {
               const maxTotal = Math.max(...tendenciaMensual.map(m => m.total));
               const altura = mes.total > 0 ? (mes.total / maxTotal) * 200 : 10;
-              
+
               return (
                 <div key={i} className="flex flex-col items-center gap-2 flex-1 min-w-[80px]">
                   <div className="text-sm font-semibold">${mes.total.toFixed(0)}</div>
-                  <div 
+                  <div
                     className="w-full bg-gradient-to-t from-blue-500 to-blue-300 rounded-t-lg transition-all hover:from-blue-600 hover:to-blue-400"
                     style={{ height: `${altura}px`, minHeight: '10px' }}
                   ></div>
@@ -439,7 +423,7 @@ const Graficos = ({ transacciones, temaActual, tasaCambio }) => {
         </div>
       </div>
 
-      {/* Insights y recomendaciones */}
+      {/* Insights */}
       <div className={`${temaActual.tarjeta} backdrop-blur-lg rounded-2xl p-6`}>
         <h3 className="text-xl font-bold mb-4">💡 Insights</h3>
         <div className="space-y-3">
@@ -447,12 +431,12 @@ const Graficos = ({ transacciones, temaActual, tasaCambio }) => {
             <div className="bg-blue-500/20 border border-blue-500 rounded-lg p-4">
               <p className="font-semibold text-blue-300">Categoría con más {tipoAnalisis}:</p>
               <p className="text-lg mt-1">
-                <span className="font-bold">{porCategoria[0].nombre}</span> con ${porCategoria[0].total.toFixed(2)} 
+                <span className="font-bold">{porCategoria[0].nombre}</span> con ${porCategoria[0].total.toFixed(2)}
                 ({porCategoria[0].cantidad} transacciones)
               </p>
             </div>
           )}
-          
+
           {porDiaSemana.length > 0 && (
             <div className="bg-purple-500/20 border border-purple-500 rounded-lg p-4">
               <p className="font-semibold text-purple-300">Día con más actividad:</p>
@@ -468,7 +452,9 @@ const Graficos = ({ transacciones, temaActual, tasaCambio }) => {
             <div className="bg-green-500/20 border border-green-500 rounded-lg p-4">
               <p className="font-semibold text-green-300">Frecuencia de {tipoAnalisis}:</p>
               <p className="text-lg mt-1">
-                Promedio de <span className="font-bold">{(estadisticas.cantidad / (periodoAnalisis === 'mes' ? 30 : periodoAnalisis === 'semana' ? 7 : 1)).toFixed(1)}</span> {tipoAnalisis} por día
+                Promedio de <span className="font-bold">
+                  {(estadisticas.cantidad / (periodoAnalisis === 'mes' ? 30 : periodoAnalisis === 'semana' ? 7 : 1)).toFixed(1)}
+                </span> {tipoAnalisis} por día
               </p>
             </div>
           )}
