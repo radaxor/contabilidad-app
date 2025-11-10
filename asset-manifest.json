@@ -1,19 +1,19 @@
 {
   "files": {
     "main.css": "/contabilidad-app/static/css/main.e5fbbaa4.css",
-    "main.js": "/contabilidad-app/static/js/main.1d976268.js",
+    "main.js": "/contabilidad-app/static/js/main.938799f1.js",
     "static/js/239.dae43974.chunk.js": "/contabilidad-app/static/js/239.dae43974.chunk.js",
     "static/js/977.d3347171.chunk.js": "/contabilidad-app/static/js/977.d3347171.chunk.js",
     "static/js/455.087d3f71.chunk.js": "/contabilidad-app/static/js/455.087d3f71.chunk.js",
     "index.html": "/contabilidad-app/index.html",
     "main.e5fbbaa4.css.map": "/contabilidad-app/static/css/main.e5fbbaa4.css.map",
-    "main.1d976268.js.map": "/contabilidad-app/static/js/main.1d976268.js.map",
+    "main.938799f1.js.map": "/contabilidad-app/static/js/main.938799f1.js.map",
     "239.dae43974.chunk.js.map": "/contabilidad-app/static/js/239.dae43974.chunk.js.map",
     "977.d3347171.chunk.js.map": "/contabilidad-app/static/js/977.d3347171.chunk.js.map",
     "455.087d3f71.chunk.js.map": "/contabilidad-app/static/js/455.087d3f71.chunk.js.map"
   },
   "entrypoints": [
     "static/css/main.e5fbbaa4.css",
-    "static/js/main.1d976268.js"
+    "static/js/main.938799f1.js"
   ]
 }
