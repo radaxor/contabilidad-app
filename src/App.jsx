@@ -4,7 +4,6 @@ import { useTransacciones } from './hooks/useTransacciones';
 import { useTasas } from './hooks/useTasas';
 import { useFiltros } from './hooks/useFiltros';
 import { calcularBalance } from './utils/calculos';
-import { calcularBalanceConImportacion } from './utils/calculos';
 import { temas } from './config/temas';
 
 
@@ -20,6 +19,7 @@ import ListaTransacciones from './components/Transacciones/ListaTransacciones';
 import PorCobrar from './components/PorCobrar/PorCobrar';
 import Ventas from './components/Ventas/Ventas';
 import Gastos from './components/Gastos/Gastos';
+import Cambios from './components/Cambios/Cambios';
 import Graficos from './components/Graficos/Graficos';
 import Calendario from './components/Calendario/Calendario';
 import Tasas from './components/Tasas/Tasas';
@@ -44,7 +44,7 @@ function App() {
   const [tema, setTema] = useState('oscuro');
   const temaActual = temas[tema];
   const transaccionesFiltradas = obtenerTransaccionesFiltradas(transacciones);
-  const balance = calcularBalanceConImportacion(transacciones);
+  const balance = calcularBalance(transacciones);
   const mesesDisponibles = obtenerMesesDisponibles();
   const compras = obtenerCompras();
   const comprasFiltradas = obtenerComprasFiltradas(compras);
@@ -132,6 +132,14 @@ function App() {
             temaActual={temaActual}
             usuario={usuario}
             tasaVenta={tasaVenta}
+          />
+        )}
+
+        {vista === 'cambios' && (
+          <Cambios 
+            usuario={usuario}
+            temaActual={temaActual}
+            transacciones={transacciones}
           />
         )}
 

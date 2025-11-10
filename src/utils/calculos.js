@@ -1,12 +1,23 @@
+
+// ========================================
+// FUNCIONES DE CÁLCULO PARA EL SISTEMA
+// ========================================
+
+/**
+ * Calcula el balance general del dashboard
+ * SOLO cuenta transacciones NUEVAS (no importadas)
+ */
 export const calcularBalance = (transacciones) => {
   let usd = 0, usdt = 0, bs = 0;
-  
-  transacciones.forEach(t => {
+
+   // ⭐ FILTRAR: Solo transacciones NO importadas para el dashboard
+  const transaccionesNuevas = transacciones.filter(t => !t.importado);
+  transaccionesNuevas.forEach(t => { 
     const monto = parseFloat(t.monto) || 0;
     const total = parseFloat(t.total) || 0;
 
     if (t.tipo === 'Venta') {
-      // NUEVO: Manejo especial para ventas
+       // VENTA: Restar USDT de Binance y Sumar Bs recibidos
       const montoUSDT = parseFloat(t.montoUSDT) || monto;
       const montoBs = parseFloat(t.montoBs) || 0;
       
@@ -48,8 +59,6 @@ export const calcularBalance = (transacciones) => {
   
   return { usd, usdt, bs };
 };
-
-
 
 export const calcularPorCategoria = (transacciones, tasaCambio) => {
   const porCat = {};
@@ -154,23 +163,48 @@ export const obtenerResumenPorCliente = (compras) => {
   return Object.values(resumen).sort((a, b) => b.totalUsd - a.totalUsd);
 };
 
-// Calcular balance considerando transacciones importadas
+/**
+ * Calcular balance considerando transacciones importadas
+ * Esta función maneja el balance para módulos que muestran TODO
+ */
 export const calcularBalanceConImportacion = (transacciones) => {
   let usd = 0, usdt = 0, bs = 0;
   
   transacciones.forEach(t => {
     if (t.importado && t.importadoDesde === 'compras') {
-      // **PARA TRANSACCIONES DE COMPRAS IMPORTADAS DEL EXCEL:**
+      // **COMPRAS IMPORTADAS DEL EXCEL:**
       // - Ganancia en Dolar → Se SUMA al balance USD
       usd += t.gananciaDolar || 0;
       // - Depositos (compraBs) → Se RESTA del balance Bs
       bs -= t.compraBs || 0;
+      
     } else if (t.importado && t.importadoDesde === 'gastos') {
-      // **PARA GASTOS IMPORTADOS DEL EXCEL:**
+      // **GASTOS IMPORTADOS DEL EXCEL:**
       // - Se resta del balance USDT (Binance)
       usdt -= t.gastoDolar || t.monto || 0;
+      
+    } else if (t.importado && t.importadoDesde === 'ventas') {
+      // ⭐⭐⭐ **VENTAS IMPORTADAS DEL EXCEL:**
+      // - Se RESTA USDT de Binance
+      const montoUSDT = parseFloat(t.montoUSDT) || parseFloat(t.monto) || 0;
+      usdt -= montoUSDT;
+      
+      // - Se SUMA Bs recibidos
+      const montoBs = parseFloat(t.montoBs) || 0;
+      bs += montoBs;
+      
+    } else if (t.importado && t.importadoDesde === 'cambios') {
+      // ⭐⭐⭐ **CAMBIOS USD → USDT IMPORTADOS:**
+      // - Se RESTA USD (porque se cambió)
+      const montoUSD = parseFloat(t.montoUSD) || 0;
+      usd -= montoUSD;
+      
+      // - Se SUMA USDT (recibido después del cambio)
+      const montoUSDT = parseFloat(t.montoUSDT) || 0;
+      usdt += montoUSDT;
+      
     } else {
-      // **PARA TRANSACCIONES NORMALES (creadas en la app):**
+      // **TRANSACCIONES NORMALES (creadas en la app):**
       let m = parseFloat(t.monto) || 0;
       if (t.tipo === 'Gasto' || t.tipo === 'Compra') m = -Math.abs(m);
       
@@ -181,4 +215,168 @@ export const calcularBalanceConImportacion = (transacciones) => {
   });
   
   return { usd, usdt, bs };
+};
+
+// --- Conversión y totales ---
+export function calcularBalanceGeneral({ divisaUsd=0, binanceUsd=0, balanceBs=0, tasaVenta=0 }) {
+  const t = Number(tasaVenta) || 0;
+  const bsToUsd = t > 0 ? (Number(balanceBs)||0) / t : 0;
+  const totalUsd = (Number(divisaUsd)||0) + (Number(binanceUsd)||0) + bsToUsd;
+  return { bsToUsd, totalUsd };
+}
+
+export function fmtMoney(num, currency='USD', locale='es-VE') {
+  const n = Number(num) || 0;
+  return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(n);
+}
+
+export function fmtNumber(num, locale='es-VE') {
+  const n = Number(num) || 0;
+  return new Intl.NumberFormat(locale).format(n);
+}
+
+// ========================================
+// FUNCIONES DE ESTADÍSTICAS PARA CAMBIOS
+// ========================================
+
+/**
+ * Calcula estadísticas completas de cambios USD → USDT
+ */
+export const calcularEstadisticasCambios = (transacciones) => {
+  // Filtrar solo transacciones de cambios
+  const cambios = transacciones.filter(t => 
+    t.tipo === 'Cambio' && t.importadoDesde === 'cambios'
+  );
+
+  if (cambios.length === 0) {
+    return null;
+  }
+
+  // Calcular totales
+  let totalUSD = 0;
+  let totalUSDT = 0;
+  let totalComision = 0;
+  let cambioMasAlto = { monto: 0 };
+  let cambioMasBajo = { monto: Infinity };
+  let mejorTasa = { tasa: 0 };
+  let peorTasa = { tasa: Infinity };
+  
+  const cambiosPorFecha = {};
+  const cambiosPorUsuario = {};
+
+  cambios.forEach(c => {
+    const usd = parseFloat(c.montoUSD) || 0;
+    const usdt = parseFloat(c.montoUSDT) || 0;
+    const comision = parseFloat(c.comision) || 0;
+    const tasa = parseFloat(c.tasaCambio) || 0;
+    const usuario = c.usuarioCambiador || 'Sin especificar';
+
+    // Totales
+    totalUSD += usd;
+    totalUSDT += usdt;
+    totalComision += comision;
+
+    // Cambio más alto y más bajo
+    if (usd > cambioMasAlto.monto) {
+      cambioMasAlto = { ...c, monto: usd };
+    }
+    if (usd < cambioMasBajo.monto && usd > 0) {
+      cambioMasBajo = { ...c, monto: usd };
+    }
+
+    // Mejor y peor tasa
+    if (tasa > mejorTasa.tasa) {
+      mejorTasa = { ...c, tasa };
+    }
+    if (tasa < peorTasa.tasa && tasa > 0) {
+      peorTasa = { ...c, tasa };
+    }
+
+    // Cambios por fecha
+    const fecha = c.fecha;
+    if (!cambiosPorFecha[fecha]) {
+      cambiosPorFecha[fecha] = { cantidad: 0, totalUSD: 0 };
+    }
+    cambiosPorFecha[fecha].cantidad++;
+    cambiosPorFecha[fecha].totalUSD += usd;
+
+    // Cambios por usuario
+    if (!cambiosPorUsuario[usuario]) {
+      cambiosPorUsuario[usuario] = { cantidad: 0, totalUSD: 0, totalUSDT: 0 };
+    }
+    cambiosPorUsuario[usuario].cantidad++;
+    cambiosPorUsuario[usuario].totalUSD += usd;
+    cambiosPorUsuario[usuario].totalUSDT += usdt;
+  });
+
+  // Encontrar día con más cambios
+  let diaConMasCambios = { fecha: '', cantidad: 0, totalUSD: 0 };
+  Object.entries(cambiosPorFecha).forEach(([fecha, datos]) => {
+    if (datos.cantidad > diaConMasCambios.cantidad) {
+      diaConMasCambios = { fecha, ...datos };
+    }
+  });
+
+  // Promedio de comisión
+  const promedioComision = totalUSD > 0 ? (totalComision / totalUSD) * 100 : 0;
+
+  // Usuario que más cambió
+  let usuarioTop = { nombre: '', totalUSD: 0, cantidad: 0 };
+  Object.entries(cambiosPorUsuario).forEach(([nombre, datos]) => {
+    if (datos.totalUSD > usuarioTop.totalUSD) {
+      usuarioTop = { nombre, ...datos };
+    }
+  });
+
+  return {
+    totalCambios: cambios.length,
+    totalUSD,
+    totalUSDT,
+    totalComision,
+    promedioComision,
+    cambioMasAlto,
+    cambioMasBajo,
+    mejorTasa,
+    peorTasa,
+    diaConMasCambios,
+    usuarioTop,
+    cambiosPorFecha,
+    cambiosPorUsuario,
+    tasaPromedioGeneral: totalUSD > 0 ? totalUSDT / totalUSD : 1
+  };
+};
+
+/**
+ * Obtiene el resumen mensual de cambios
+ */
+export const obtenerResumenMensualCambios = (transacciones) => {
+  const cambios = transacciones.filter(t => 
+    t.tipo === 'Cambio' && t.importadoDesde === 'cambios'
+  );
+
+  const resumenPorMes = {};
+
+  cambios.forEach(c => {
+    const fecha = c.fecha || '';
+    const [año, mes] = fecha.split('-');
+    const claveMes = `${año}-${mes}`;
+
+    if (!resumenPorMes[claveMes]) {
+      resumenPorMes[claveMes] = {
+        cantidad: 0,
+        totalUSD: 0,
+        totalUSDT: 0,
+        totalComision: 0
+      };
+    }
+
+    resumenPorMes[claveMes].cantidad++;
+    resumenPorMes[claveMes].totalUSD += parseFloat(c.montoUSD) || 0;
+    resumenPorMes[claveMes].totalUSDT += parseFloat(c.montoUSDT) || 0;
+    resumenPorMes[claveMes].totalComision += parseFloat(c.comision) || 0;
+  });
+
+  return Object.entries(resumenPorMes)
+    .sort((a, b) => b[0].localeCompare(a[0])) // Ordenar de más reciente a más antiguo
+    .map(([mes, datos]) => ({ mes, ...datos }));
 };

@@ -6,7 +6,8 @@ const Navigation = ({ vista, setVista, temaActual }) => {
     { id: 'transacciones', label: 'Transacciones' },
     { id: 'porCobrar', label: 'Por Cobrar' },
     { id: 'ventas', label: 'Ventas' },
-    { id: 'gastos', label: 'Gastos' }, // ← AGREGAR ESTA LÍNEA
+    { id: 'gastos', label: 'Gastos' }, 
+    { id: 'cambios', label: 'cambios' },
     { id: 'graficos', label: 'Graficos' },
     { id: 'calendario', label: 'Calendario' },
     { id: 'tasas', label: 'Tasas' },
