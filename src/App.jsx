@@ -1,12 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from './hooks/useAuth';
 import { useTransacciones } from './hooks/useTransacciones';
 import { useTasas } from './hooks/useTasas';
 import { useFiltros } from './hooks/useFiltros';
 import { calcularBalance } from './utils/calculos';
 import { temas } from './config/temas';
-
-
+import { createUserProfile } from './services/userservice';
 
 // Componentes
 import Login from './components/Auth/Login';
@@ -50,6 +49,27 @@ function App() {
   const comprasFiltradas = obtenerComprasFiltradas(compras);
   const clientesUnicos = obtenerClientesUnicos();
   const operadoresUnicos = obtenerOperadoresUnicos();
+
+  // ========== NUEVA SECCIÓN: Crear perfil de usuario ==========
+  useEffect(() => {
+    const inicializarUsuario = async () => {
+      if (usuario) {
+        try {
+          await createUserProfile(usuario.uid, {
+            email: usuario.email,
+            nombre: usuario.displayName || 'Rafael Rosas',
+            role: 'admin' // El primer usuario será admin
+          });
+          console.log('✅ Perfil de usuario verificado/creado');
+        } catch (error) {
+          console.error('❌ Error al inicializar perfil:', error);
+        }
+      }
+    };
+
+    inicializarUsuario();
+  }, [usuario]);
+  // ========== FIN NUEVA SECCIÓN ==========
 
   if (cargando) {
     return <Loading temaActual={temaActual} />;
@@ -114,7 +134,7 @@ function App() {
             operadoresUnicos={operadoresUnicos}
             limpiarFiltros={limpiarFiltrosPorCobrar}
             usuario={usuario}          
-            compras={compras}  // ← AGREGAR TODAS LAS COMPRAS
+            compras={compras}
           />
         )}
 

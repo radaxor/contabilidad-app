@@ -1,159 +1,216 @@
 import * as XLSX from 'xlsx';
-import { crearTransaccion } from '../services/transacciones.service';
-import { db } from '../services/firebase';
 
-export const importarExcelGastos = async (file, usuario, tasaVenta) => {
+/**
+ * Función auxiliar para limpiar números (maneja formatos con comas y puntos)
+ */
+const limpiarNumero = (valor) => {
+  // ✅ Manejar valores vacíos, null, undefined o strings vacíos
+  if (valor === null || valor === undefined || valor === '' || valor === ' ') return 0;
+  
+  // Si ya es número, retornarlo (incluyendo 0)
+  if (typeof valor === 'number') return valor;
+  
+  // Convertir a string y limpiar espacios
+  let str = String(valor).trim();
+  
+  // Si después de limpiar está vacío, retornar 0
+  if (str === '') return 0;
+  
+  // Remover símbolos de moneda y espacios
+  str = str.replace(/[$\s]/g, '');
+  
+  // Si quedó vacío después de remover símbolos, retornar 0
+  if (str === '') return 0;
+  
+  // Detectar si usa formato europeo (coma como decimal)
+  // Si tiene punto como separador de miles Y coma como decimal: 1.234,56
+  if (str.match(/\.\d{3}/) && str.includes(',')) {
+    str = str.replace(/\./g, '').replace(',', '.');
+  }
+  // Si solo tiene coma (formato europeo simple): 1234,56
+  else if (str.includes(',') && !str.includes('.')) {
+    str = str.replace(',', '.');
+  }
+  // Si tiene coma Y punto, pero el punto está al final (decimal): 1,234.56
+  else if (str.includes(',') && str.includes('.')) {
+    str = str.replace(/,/g, '');
+  }
+  
+  const numero = parseFloat(str);
+  
+  // Si el resultado es NaN, retornar 0
+  return isNaN(numero) ? 0 : numero;
+};
+
+/**
+ * Convierte fecha de Excel (número serial) a formato YYYY-MM-DD
+ */
+const convertirFechaExcel = (serial) => {
+  if (!serial) return new Date().toISOString().split('T')[0];
+  
+  // Si ya es una fecha válida
+  if (typeof serial === 'string' && serial.includes('-')) {
+    return serial;
+  }
+  
+  // Si es un número serial de Excel
+  if (typeof serial === 'number') {
+    const date = new Date((serial - 25569) * 86400 * 1000);
+    return date.toISOString().split('T')[0];
+  }
+  
+  return new Date().toISOString().split('T')[0];
+};
+
+/**
+ * Convierte hora de Excel a formato HH:MM
+ */
+const convertirHoraExcel = (valor) => {
+  if (!valor) return '00:00';
+  
+  // Si ya es string en formato correcto
+  if (typeof valor === 'string' && valor.includes(':')) {
+    return valor;
+  }
+  
+  // Si es fracción de día de Excel (0.5 = 12:00 PM)
+  if (typeof valor === 'number' && valor < 1) {
+    const totalMinutes = Math.round(valor * 24 * 60);
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+  }
+  
+  return '00:00';
+};
+
+/**
+ * Procesa el archivo Excel de gastos
+ */
+export const procesarArchivoGastos = (file, usuario, tasaVenta) => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-
-    reader.onload = async (e) => {
+    
+    reader.onload = (e) => {
       try {
+        console.log('📁 Leyendo archivo Excel...');
         const data = new Uint8Array(e.target.result);
-        const workbook = XLSX.read(data, { type: 'array', cellDates: true });
-        const sheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[sheetName];
+        const workbook = XLSX.read(data, { type: 'array' });
+        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+        const jsonData = XLSX.utils.sheet_to_json(firstSheet);
         
-        const jsonData = XLSX.utils.sheet_to_json(worksheet, { 
-          raw: false,
-          defval: ''
-        });
-
-        console.log('📊 Total de filas de gastos leídas:', jsonData.length);
+        console.log('📊 Datos leídos del Excel:', jsonData.length, 'filas');
         console.log('📋 Primera fila de ejemplo:', jsonData[0]);
-
-        if (jsonData.length === 0) {
-          alert('❌ El archivo Excel está vacío o no tiene el formato correcto');
-          return resolve({
-            exitosas: 0,
-            errores: ['Archivo vacío'],
-            total: 0,
-            filasVacias: 0
+        
+        // Mapear los datos del Excel al formato de la app
+        const gastosImportados = jsonData.map((row, index) => {
+          // Leer campos del Excel
+          const fecha = convertirFechaExcel(row['Fecha']);
+          const hora = convertirHoraExcel(row['Hora']);
+          const descripcion = row['Descripcion'] || row['descripcion'] || `Gasto ${index + 1}`;
+          
+          // ⭐ CAMPO CRÍTICO: Leer "Gasto en $" correctamente
+          const gastoDolar = limpiarNumero(row['Gasto en $'] || row['Gasto en'] || row['gasto en $'] || 0);
+          
+          // Leer tasa de venta (para calcular el monto en Bs)
+          const tasaUsada = limpiarNumero(row['Tasa de venta'] || row['Tasa Venta'] || row['tasa de venta'] || tasaVenta);
+          
+          // Calcular el total en Bs (gasto en $ * tasa)
+          const totalBs = gastoDolar * tasaUsada;
+          
+          // Determinar categoría (buscar en múltiples columnas)
+          let categoria = 'Sin Categoría';
+          const columnasCategoria = [
+            'Varios', 'Escuela', 'Servicios', 'Rafael', 'Emilys', 
+            'Casa', 'Carro', 'Prestamos', 'Remesas', 'Pasajes'
+          ];
+          
+          for (const col of columnasCategoria) {
+            const valor = limpiarNumero(row[col]);
+            if (valor > 0) {
+              categoria = col;
+              break;
+            }
+          }
+          
+          console.log(`Fila ${index + 1}:`, {
+            descripcion,
+            'Gasto en $': gastoDolar === 0 ? '0 (vacío)' : gastoDolar,
+            'Tasa': tasaUsada,
+            'Total Bs': totalBs,
+            categoria
           });
-        }
-
-        // Verificar si ya hay gastos importados
-        const existentes = await db.collection('transacciones')
-          .where('usuarioId', '==', usuario.uid)
-          .where('importado', '==', true)
-          .where('importadoDesde', '==', 'gastos')
-          .limit(1)
-          .get();
-
-        if (!existentes.empty) {
-          const confirmar = window.confirm(
-            `⚠️ Ya tienes gastos importados anteriormente.\n\n` +
-            '¿Deseas continuar? Esto podría crear duplicados.\n\n' +
-            '💡 Recomendación: Usa el botón "🗑️ Limpiar Gastos Importados" antes de reimportar.'
-          );
           
-          if (!confirmar) {
-            return resolve({
-              exitosas: 0,
-              errores: ['Importación cancelada por el usuario'],
-              total: jsonData.length,
-              filasVacias: 0
-            });
-          }
-        }
-
-        const transaccionesCreadas = [];
-        const errores = [];
-        let filasVacias = 0;
-
-        for (let i = 0; i < jsonData.length; i++) {
-          const row = jsonData[i];
-          const numFila = i + 2;
-          
-          try {
-            // Limpiar y convertir números
-            const limpiarNumero = (valor) => {
-              if (!valor) return 0;
-              if (typeof valor === 'number') return valor;
-              const limpio = String(valor).replace(/[BsF$,\s]/g, '').replace(',', '.');
-              const numero = parseFloat(limpio);
-              return isNaN(numero) ? 0 : numero;
-            };
-
-            // Leer campos del Excel
-            const fechaRaw = row['Fecha'] || row['FECHA'] || '';
-            const descripcion = row['Descripcion'] || row['DESCRIPCION'] || row['Descripción'] || '';
-            const monto = limpiarNumero(row['Monto'] || row['MONTO'] || 0);
-            const categoria = row['Categoria'] || row['CATEGORIA'] || row['Categoría'] || 'Varios';
-            const cuenta = row['Cuenta'] || row['CUENTA'] || 'Provincial';
-            const moneda = row['Moneda'] || row['MONEDA'] || 'Bs';
-            const total = limpiarNumero(row['Total'] || row['TOTAL'] || monto);
-
-            // Parsear fecha
-            let fecha = fechaRaw;
-            if (fecha && fecha.includes('/')) {
-              const partes = fecha.split('/');
-              if (partes.length === 3) {
-                const dia = partes[0].padStart(2, '0');
-                const mes = partes[1].padStart(2, '0');
-                const año = partes[2].length === 2 ? '20' + partes[2] : partes[2];
-                fecha = `${año}-${mes}-${dia}`;
-              }
-            } else if (fecha && fecha.includes('-')) {
-              const partes = fecha.split('-');
-              if (partes.length === 3 && partes[0].length === 2) {
-                const dia = partes[0].padStart(2, '0');
-                const mes = partes[1].padStart(2, '0');
-                const año = partes[2].length === 2 ? '20' + partes[2] : partes[2];
-                fecha = `${año}-${mes}-${dia}`;
-              }
-            }
-
-            // Validar datos mínimos
-            if (!fecha || !descripcion || total === 0) {
-              console.log(`⚠️ Fila ${numFila}: Datos incompletos, saltando...`);
-              filasVacias++;
-              continue;
-            }
-
-            // Calcular gasto en dólares
-            const gastoDolar = tasaVenta > 0 ? total / tasaVenta : 0;
-
-            // CRÍTICO: Crear transacción con tipo: 'Gasto'
-            const transaccion = {
-              tipo: 'Gasto', // ← ESTO ES CRÍTICO
-              fecha: fecha,
-              descripcion: descripcion,
-              monto: monto || gastoDolar, // Usar gastoDolar si monto está vacío
-              categoria: categoria,
-              cuenta: cuenta,
-              moneda: moneda,
-              total: total,
-              gastoDolar: gastoDolar,
-              tasaVenta: tasaVenta,
-              importado: true,
-              importadoDesde: 'gastos'
-            };
-
-            console.log(`✅ Fila ${numFila}: ${descripcion} - Bs${total} → $${gastoDolar.toFixed(2)}`);
-
-            await crearTransaccion(transaccion, usuario);
-            transaccionesCreadas.push(transaccion);
-
-          } catch (error) {
-            console.error(`❌ Error en fila ${numFila}:`, error);
-            errores.push(`Fila ${numFila}: ${error.message}`);
-          }
-        }
-
-        resolve({
-          exitosas: transaccionesCreadas.length,
-          errores: errores,
-          total: jsonData.length,
-          filasVacias: filasVacias
+          return {
+            tipo: 'Gasto',
+            fecha: fecha,
+            hora: hora,
+            descripcion: descripcion,
+            categoria: categoria,
+            moneda: 'USD',
+            monto: gastoDolar,           // ⭐ Gasto en dólares
+            gastoDolar: gastoDolar,       // ⭐ Campo específico para el gasto en $
+            tasa: tasaUsada,
+            total: totalBs,               // Total en Bs calculado
+            cuenta: 'General',
+            esImportado: true,            // ⭐ Marca como importado
+            importadoDesde: 'gastos',
+            usuarioId: usuario.uid,
+            creadoPor: usuario.email,
+            importado: true,  // ← ¿Está esta línea?
+            importadoEn: new Date().toISOString()
+          };
         });
-
+        
+        console.log('✅ Gastos procesados:', gastosImportados.length);
+        console.log('💰 Suma total USD:', gastosImportados.reduce((sum, g) => sum + g.gastoDolar, 0));
+        
+        resolve(gastosImportados);
+        
       } catch (error) {
-        console.error('❌ Error general:', error);
-        reject(error);
+        console.error('❌ Error al procesar archivo:', error);
+        reject(new Error('Error al procesar el archivo: ' + error.message));
       }
     };
-
-    reader.onerror = (error) => reject(error);
+    
+    reader.onerror = () => {
+      reject(new Error('Error al leer el archivo'));
+    };
+    
     reader.readAsArrayBuffer(file);
   });
+};
+
+/**
+ * Valida los gastos importados
+ */
+export const validarGastosImportados = (gastos) => {
+  const errores = [];
+  const gastosValidos = [];
+  
+  gastos.forEach((gasto, index) => {
+    const fila = index + 2; // +2 porque Excel empieza en 1 y tiene headers
+    
+    // Validaciones
+    if (!gasto.fecha || gasto.fecha === 'Invalid Date') {
+      errores.push(`Fila ${fila}: Fecha inválida`);
+      return;
+    }
+    
+    if (!gasto.descripcion) {
+      errores.push(`Fila ${fila}: Falta descripción`);
+      return;
+    }
+    
+    // ✅ PERMITIR gastos con valor 0 o null
+    // Solo validar que el valor sea un número válido
+    if (isNaN(gasto.gastoDolar)) {
+      errores.push(`Fila ${fila}: Gasto en $ tiene un valor inválido (valor: ${gasto.gastoDolar})`);
+      return;
+    }
+    
+    gastosValidos.push(gasto);
+  });
+  
+  return { gastosValidos, errores };
 };

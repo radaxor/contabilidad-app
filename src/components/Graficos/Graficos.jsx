@@ -1,463 +1,742 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import Chart from 'chart.js/auto';
 
-const Graficos = ({ transacciones, temaActual, tasaCambio }) => {
-  const [tipoAnalisis, setTipoAnalisis] = useState('gastos'); // gastos, compras, general
-  const [periodoAnalisis, setPeriodoAnalisis] = useState('mes'); // dia, semana, mes, año
-  const chartRef = useRef(null);
-  const chartInstance = useRef(null);
+const Graficos = ({ transacciones, temaActual }) => {
+  const [vistaActual, setVistaActual] = useState('gastos'); // gastos, ventas, porCobrar, cambios
+  const [periodoAnalisis, setPeriodoAnalisis] = useState('mes'); // dia, semana, mes, año, todo
+  
+  const chartCategorias = useRef(null);
+  const chartTendencia = useRef(null);
+  const chartInstanceCategorias = useRef(null);
+  const chartInstanceTendencia = useRef(null);
 
-  // Filtrar transacciones por periodo (calcula fechas dentro del useMemo)
-  const transaccionesFiltradas = useMemo(() => {
-    // Fechas base del periodo actual
+  // Obtener fechas de periodo
+  const obtenerFechaInicio = () => {
     const hoy = new Date();
-    const inicioSemana = new Date(hoy);
-    inicioSemana.setDate(hoy.getDate() - hoy.getDay());
-    const inicioMes = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
-    const inicioAño = new Date(hoy.getFullYear(), 0, 1);
-
-    let fechaInicio;
-    switch (periodoAnalisis) {
+    switch(periodoAnalisis) {
       case 'dia':
-        fechaInicio = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
-        break;
+        return new Date(hoy.setHours(0, 0, 0, 0));
       case 'semana':
-        fechaInicio = inicioSemana;
-        break;
+        const inicioSemana = new Date(hoy);
+        inicioSemana.setDate(hoy.getDate() - hoy.getDay());
+        return inicioSemana;
       case 'mes':
-        fechaInicio = inicioMes;
-        break;
+        return new Date(hoy.getFullYear(), hoy.getMonth(), 1);
       case 'año':
-        fechaInicio = inicioAño;
-        break;
+        return new Date(hoy.getFullYear(), 0, 1);
       default:
-        fechaInicio = new Date(0);
+        return new Date(0); // todo
     }
+  };
 
+  // Filtrar transacciones por periodo
+  const transaccionesFiltradas = useMemo(() => {
+    const fechaInicio = obtenerFechaInicio();
     return transacciones.filter(t => {
       const fechaTransaccion = new Date(t.fecha);
       return fechaTransaccion >= fechaInicio;
     });
   }, [transacciones, periodoAnalisis]);
 
-  // Filtrar por tipo de análisis
-  const transaccionesPorTipo = useMemo(() => {
-    if (tipoAnalisis === 'gastos') {
-      return transaccionesFiltradas.filter(t => t.tipo === 'Gasto');
-    } else if (tipoAnalisis === 'compras') {
-      return transaccionesFiltradas.filter(t => t.tipo === 'Compra');
-    }
-    return transaccionesFiltradas; // general
-  }, [transaccionesFiltradas, tipoAnalisis]);
-
-  // Calcular estadísticas generales
-  const estadisticas = useMemo(() => {
-    const stats = {
-      total: 0,
-      promedio: 0,
-      maximo: { monto: 0, transaccion: null },
-      minimo: { monto: Infinity, transaccion: null },
-      cantidad: transaccionesPorTipo.length
+  // ========================================
+  // ANÁLISIS DE GASTOS
+  // ========================================
+  const analisisGastos = useMemo(() => {
+    const gastos = transaccionesFiltradas.filter(t => t.tipo === 'Gasto');
+    
+    // Total y promedio
+    const totalUSD = gastos.reduce((sum, g) => sum + (parseFloat(g.gastoDolar) || parseFloat(g.monto) || 0), 0);
+    const totalBs = gastos.reduce((sum, g) => sum + (parseFloat(g.total) || 0), 0);
+    const promedio = gastos.length > 0 ? totalUSD / gastos.length : 0;
+    
+    // Gasto más alto y más bajo
+    let masAlto = { monto: 0, data: null };
+    let masBajo = { monto: Infinity, data: null };
+    
+    gastos.forEach(g => {
+      const monto = parseFloat(g.gastoDolar) || parseFloat(g.monto) || 0;
+      if (monto > masAlto.monto) {
+        masAlto = { monto, data: g };
+      }
+      if (monto < masBajo.monto && monto > 0) {
+        masBajo = { monto, data: g };
+      }
+    });
+    
+    // Por categoría
+    const porCategoria = {};
+    gastos.forEach(g => {
+      const cat = g.categoria || 'Sin Categoría';
+      if (!porCategoria[cat]) {
+        porCategoria[cat] = { total: 0, cantidad: 0, porcentaje: 0 };
+      }
+      porCategoria[cat].total += parseFloat(g.gastoDolar) || parseFloat(g.monto) || 0;
+      porCategoria[cat].cantidad++;
+    });
+    
+    // Calcular porcentajes
+    Object.keys(porCategoria).forEach(cat => {
+      porCategoria[cat].porcentaje = (porCategoria[cat].total / totalUSD) * 100;
+    });
+    
+    // Ordenar por total
+    const categoriasOrdenadas = Object.entries(porCategoria)
+      .sort((a, b) => b[1].total - a[1].total);
+    
+    // Tendencia diaria
+    const porDia = {};
+    gastos.forEach(g => {
+      const fecha = g.fecha;
+      if (!porDia[fecha]) {
+        porDia[fecha] = 0;
+      }
+      porDia[fecha] += parseFloat(g.gastoDolar) || parseFloat(g.monto) || 0;
+    });
+    
+    return {
+      total: totalUSD,
+      totalBs,
+      promedio,
+      cantidad: gastos.length,
+      masAlto,
+      masBajo,
+      porCategoria: categoriasOrdenadas,
+      porDia: Object.entries(porDia).sort((a, b) => a[0].localeCompare(b[0]))
     };
+  }, [transaccionesFiltradas]);
 
-    transaccionesPorTipo.forEach(t => {
-      const monto = Math.abs(parseFloat(t.monto) || 0);
-      stats.total += monto;
-
-      if (monto > stats.maximo.monto) {
-        stats.maximo = { monto, transaccion: t };
+  // ========================================
+  // ANÁLISIS DE VENTAS
+  // ========================================
+  const analisisVentas = useMemo(() => {
+    const ventas = transaccionesFiltradas.filter(t => t.tipo === 'Venta');
+    
+    // Totales
+    const totalUSDT = ventas.reduce((sum, v) => sum + (parseFloat(v.montoUSDT) || parseFloat(v.monto) || 0), 0);
+    const totalBs = ventas.reduce((sum, v) => sum + (parseFloat(v.montoBs) || 0), 0);
+    const comisionTotal = ventas.reduce((sum, v) => sum + (parseFloat(v.comision) || 0), 0);
+    
+    // Tasa promedio
+    const tasaPromedio = ventas.length > 0 
+      ? ventas.reduce((sum, v) => sum + (parseFloat(v.tasa) || 0), 0) / ventas.length 
+      : 0;
+    
+    // Mejor y peor tasa
+    let mejorTasa = { tasa: 0, data: null };
+    let peorTasa = { tasa: Infinity, data: null };
+    
+    ventas.forEach(v => {
+      const tasa = parseFloat(v.tasa) || 0;
+      if (tasa > mejorTasa.tasa) {
+        mejorTasa = { tasa, data: v };
       }
-      if (monto < stats.minimo.monto && monto > 0) {
-        stats.minimo = { monto, transaccion: t };
+      if (tasa < peorTasa.tasa && tasa > 0) {
+        peorTasa = { tasa, data: v };
       }
     });
-
-    stats.promedio = stats.cantidad > 0 ? stats.total / stats.cantidad : 0;
-    if (stats.minimo.monto === Infinity) stats.minimo.monto = 0;
-
-    return stats;
-  }, [transaccionesPorTipo]);
-
-  // Calcular por categoría
-  const porCategoria = useMemo(() => {
-    const categorias = {};
-    transaccionesPorTipo.forEach(t => {
-      const cat = t.categoria || 'Sin categoría';
-      if (!categorias[cat]) {
-        categorias[cat] = { nombre: cat, total: 0, cantidad: 0, promedio: 0 };
+    
+    // Venta más grande
+    let masGrande = { monto: 0, data: null };
+    ventas.forEach(v => {
+      const monto = parseFloat(v.montoUSDT) || parseFloat(v.monto) || 0;
+      if (monto > masGrande.monto) {
+        masGrande = { monto, data: v };
       }
-      const monto = Math.abs(parseFloat(t.monto) || 0);
-      categorias[cat].total += monto;
-      categorias[cat].cantidad++;
     });
-
-    Object.values(categorias).forEach(cat => {
-      cat.promedio = cat.cantidad > 0 ? cat.total / cat.cantidad : 0;
+    
+    // Por cuenta destino
+    const porCuenta = {};
+    ventas.forEach(v => {
+      const cuenta = v.cuentaDestino || 'Sin especificar';
+      if (!porCuenta[cuenta]) {
+        porCuenta[cuenta] = { total: 0, cantidad: 0 };
+      }
+      porCuenta[cuenta].total += parseFloat(v.montoBs) || 0;
+      porCuenta[cuenta].cantidad++;
     });
+    
+    // Tendencia diaria
+    const porDia = {};
+    ventas.forEach(v => {
+      const fecha = v.fecha;
+      if (!porDia[fecha]) {
+        porDia[fecha] = 0;
+      }
+      porDia[fecha] += parseFloat(v.montoUSDT) || parseFloat(v.monto) || 0;
+    });
+    
+    return {
+      totalUSDT,
+      totalBs,
+      comisionTotal,
+      tasaPromedio,
+      cantidad: ventas.length,
+      mejorTasa,
+      peorTasa,
+      masGrande,
+      porCuenta: Object.entries(porCuenta).sort((a, b) => b[1].total - a[1].total),
+      porDia: Object.entries(porDia).sort((a, b) => a[0].localeCompare(b[0]))
+    };
+  }, [transaccionesFiltradas]);
 
-    return Object.values(categorias).sort((a, b) => b.total - a.total);
-  }, [transaccionesPorTipo]);
-
-  // Top 5 transacciones más grandes
-  const top5Transacciones = useMemo(() => {
-    return [...transaccionesPorTipo]
-      .sort((a, b) => Math.abs(b.monto) - Math.abs(a.monto))
+  // ========================================
+  // ANÁLISIS DE POR COBRAR (COMPRAS)
+  // ========================================
+  const analisisPorCobrar = useMemo(() => {
+    const compras = transaccionesFiltradas.filter(t => t.tipo === 'Compra');
+    
+    // Por status
+    const pagadas = compras.filter(c => c.status === 'Pagado');
+    const pendientes = compras.filter(c => c.status === 'Por Cobrar');
+    
+    const totalUSD = compras.reduce((sum, c) => sum + (parseFloat(c.compraDolar) || parseFloat(c.monto) || 0), 0);
+    const totalPagado = pagadas.reduce((sum, c) => sum + (parseFloat(c.compraDolar) || parseFloat(c.monto) || 0), 0);
+    const totalPendiente = pendientes.reduce((sum, c) => sum + (parseFloat(c.compraDolar) || parseFloat(c.monto) || 0), 0);
+    
+    // Ganancia
+    const gananciaTotal = compras.reduce((sum, c) => sum + (parseFloat(c.gananciaDolar) || 0), 0);
+    const gananciaPagadas = pagadas.reduce((sum, c) => sum + (parseFloat(c.gananciaDolar) || 0), 0);
+    const gananciaPendientes = pendientes.reduce((sum, c) => sum + (parseFloat(c.gananciaDolar) || 0), 0);
+    
+    // Mejor tasa de compra
+    let mejorTasa = { tasa: Infinity, data: null };
+    compras.forEach(c => {
+      const tasa = parseFloat(c.tasa) || 0;
+      if (tasa < mejorTasa.tasa && tasa > 0) {
+        mejorTasa = { tasa, data: c };
+      }
+    });
+    
+    // Compra más grande
+    let masGrande = { monto: 0, data: null };
+    compras.forEach(c => {
+      const monto = parseFloat(c.compraDolar) || parseFloat(c.monto) || 0;
+      if (monto > masGrande.monto) {
+        masGrande = { monto, data: c };
+      }
+    });
+    
+    // Por cliente (top 5)
+    const porCliente = {};
+    compras.forEach(c => {
+      const cliente = c.cliente || 'Sin nombre';
+      if (!porCliente[cliente]) {
+        porCliente[cliente] = { 
+          total: 0, 
+          cantidad: 0, 
+          pendiente: 0,
+          ganancia: 0 
+        };
+      }
+      porCliente[cliente].total += parseFloat(c.compraDolar) || parseFloat(c.monto) || 0;
+      porCliente[cliente].cantidad++;
+      porCliente[cliente].ganancia += parseFloat(c.gananciaDolar) || 0;
+      if (c.status === 'Por Cobrar') {
+        porCliente[cliente].pendiente += parseFloat(c.compraDolar) || parseFloat(c.monto) || 0;
+      }
+    });
+    
+    const clientesTop = Object.entries(porCliente)
+      .sort((a, b) => b[1].total - a[1].total)
       .slice(0, 5);
-  }, [transaccionesPorTipo]);
-
-  // Análisis por día de la semana
-  const porDiaSemana = useMemo(() => {
-    const dias = {
-      0: { nombre: 'Domingo', total: 0, cantidad: 0 },
-      1: { nombre: 'Lunes', total: 0, cantidad: 0 },
-      2: { nombre: 'Martes', total: 0, cantidad: 0 },
-      3: { nombre: 'Miércoles', total: 0, cantidad: 0 },
-      4: { nombre: 'Jueves', total: 0, cantidad: 0 },
-      5: { nombre: 'Viernes', total: 0, cantidad: 0 },
-      6: { nombre: 'Sábado', total: 0, cantidad: 0 }
+    
+    return {
+      totalUSD,
+      totalPagado,
+      totalPendiente,
+      gananciaTotal,
+      gananciaPagadas,
+      gananciaPendientes,
+      cantidad: compras.length,
+      cantidadPagadas: pagadas.length,
+      cantidadPendientes: pendientes.length,
+      mejorTasa,
+      masGrande,
+      clientesTop
     };
+  }, [transaccionesFiltradas]);
 
-    transaccionesPorTipo.forEach(t => {
-      const fecha = new Date(t.fecha);
-      const dia = fecha.getDay();
-      const monto = Math.abs(parseFloat(t.monto) || 0);
-      dias[dia].total += monto;
-      dias[dia].cantidad++;
+  // ========================================
+  // ANÁLISIS DE CAMBIOS USD-USDT
+  // ========================================
+  const analisisCambios = useMemo(() => {
+    const cambios = transaccionesFiltradas.filter(t => t.tipo === 'Cambio' || t.importadoDesde === 'cambios');
+    
+    const totalUSD = cambios.reduce((sum, c) => sum + (parseFloat(c.usd) || 0), 0);
+    const totalUSDT = cambios.reduce((sum, c) => sum + (parseFloat(c.usdt) || 0), 0);
+    const comisionTotal = cambios.reduce((sum, c) => sum + (parseFloat(c.comision) || 0), 0);
+    
+    // Tasa promedio
+    const tasaPromedio = cambios.length > 0
+      ? cambios.reduce((sum, c) => sum + (parseFloat(c.tasa) || 0), 0) / cambios.length
+      : 0;
+    
+    // Mejor y peor tasa
+    let mejorTasa = { tasa: 0, data: null };
+    let peorTasa = { tasa: Infinity, data: null };
+    
+    cambios.forEach(c => {
+      const tasa = parseFloat(c.tasa) || 0;
+      if (tasa > mejorTasa.tasa) {
+        mejorTasa = { tasa, data: c };
+      }
+      if (tasa < peorTasa.tasa && tasa > 0) {
+        peorTasa = { tasa, data: c };
+      }
     });
+    
+    // Cambio más grande
+    let masGrande = { monto: 0, data: null };
+    cambios.forEach(c => {
+      const monto = parseFloat(c.usd) || 0;
+      if (monto > masGrande.monto) {
+        masGrande = { monto, data: c };
+      }
+    });
+    
+    // Por usuario cambiador
+    const porUsuario = {};
+    cambios.forEach(c => {
+      const usuario = c.usuarioCambiador || 'Sin especificar';
+      if (!porUsuario[usuario]) {
+        porUsuario[usuario] = { total: 0, cantidad: 0 };
+      }
+      porUsuario[usuario].total += parseFloat(c.usd) || 0;
+      porUsuario[usuario].cantidad++;
+    });
+    
+    return {
+      totalUSD,
+      totalUSDT,
+      comisionTotal,
+      tasaPromedio,
+      cantidad: cambios.length,
+      mejorTasa,
+      peorTasa,
+      masGrande,
+      porUsuario: Object.entries(porUsuario).sort((a, b) => b[1].total - a[1].total)
+    };
+  }, [transaccionesFiltradas]);
 
-    return Object.values(dias);
-  }, [transaccionesPorTipo]);
+  // Renderizar gráficos
+  useEffect(() => {
+    // Destruir gráficos anteriores
+    if (chartInstanceCategorias.current) {
+      chartInstanceCategorias.current.destroy();
+    }
+    if (chartInstanceTendencia.current) {
+      chartInstanceTendencia.current.destroy();
+    }
 
-  // Tendencia por mes (últimos 12 meses)
-  const tendenciaMensual = useMemo(() => {
-    const meses = {};
-    const hoy = new Date();
+    if (!chartCategorias.current || !chartTendencia.current) return;
 
-    // Inicializar últimos 12 meses
-    for (let i = 11; i >= 0; i--) {
-      const fecha = new Date(hoy.getFullYear(), hoy.getMonth() - i, 1);
-      const key = `${fecha.getFullYear()}-${String(fecha.getMonth() + 1).padStart(2, '0')}`;
-      meses[key] = {
-        nombre: fecha.toLocaleDateString('es', { month: 'short', year: 'numeric' }),
-        total: 0,
-        cantidad: 0
+    const ctxCategorias = chartCategorias.current.getContext('2d');
+    const ctxTendencia = chartTendencia.current.getContext('2d');
+
+    // Configuración según la vista actual
+    let datosCategorias, datosTendencia;
+
+    if (vistaActual === 'gastos') {
+      // Gráfico de categorías de gastos
+      datosCategorias = {
+        labels: analisisGastos.porCategoria.map(([cat]) => cat),
+        datasets: [{
+          label: 'Gastos por Categoría (USD)',
+          data: analisisGastos.porCategoria.map(([, datos]) => datos.total),
+          backgroundColor: [
+            '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF',
+            '#FF9F40', '#FF6384', '#C9CBCF', '#4BC0C0', '#FF6384'
+          ],
+          borderWidth: 2,
+          borderColor: '#fff'
+        }]
+      };
+
+      // Gráfico de tendencia diaria
+      datosTendencia = {
+        labels: analisisGastos.porDia.map(([fecha]) => fecha),
+        datasets: [{
+          label: 'Gastos Diarios (USD)',
+          data: analisisGastos.porDia.map(([, monto]) => monto),
+          borderColor: '#FF6384',
+          backgroundColor: 'rgba(255, 99, 132, 0.2)',
+          fill: true,
+          tension: 0.4
+        }]
+      };
+    } else if (vistaActual === 'ventas') {
+      // Gráfico por cuenta destino
+      datosCategorias = {
+        labels: analisisVentas.porCuenta.map(([cuenta]) => cuenta),
+        datasets: [{
+          label: 'Ventas por Cuenta (Bs)',
+          data: analisisVentas.porCuenta.map(([, datos]) => datos.total),
+          backgroundColor: ['#36A2EB', '#4BC0C0', '#FFCE56'],
+          borderWidth: 2,
+          borderColor: '#fff'
+        }]
+      };
+
+      // Tendencia de ventas
+      datosTendencia = {
+        labels: analisisVentas.porDia.map(([fecha]) => fecha),
+        datasets: [{
+          label: 'Ventas Diarias (USDT)',
+          data: analisisVentas.porDia.map(([, monto]) => monto),
+          borderColor: '#36A2EB',
+          backgroundColor: 'rgba(54, 162, 235, 0.2)',
+          fill: true,
+          tension: 0.4
+        }]
+      };
+    } else if (vistaActual === 'porCobrar') {
+      // Top 5 clientes
+      datosCategorias = {
+        labels: analisisPorCobrar.clientesTop.map(([cliente]) => cliente),
+        datasets: [{
+          label: 'Compras por Cliente (USD)',
+          data: analisisPorCobrar.clientesTop.map(([, datos]) => datos.total),
+          backgroundColor: '#FFCE56',
+          borderWidth: 2,
+          borderColor: '#fff'
+        }]
+      };
+
+      // Comparación Pagado vs Pendiente
+      datosTendencia = {
+        labels: ['Pagado', 'Pendiente'],
+        datasets: [{
+          label: 'Status de Compras (USD)',
+          data: [analisisPorCobrar.totalPagado, analisisPorCobrar.totalPendiente],
+          backgroundColor: ['#4BC0C0', '#FF9F40'],
+          borderWidth: 2,
+          borderColor: '#fff'
+        }]
+      };
+    } else if (vistaActual === 'cambios') {
+      // Por usuario
+      datosCategorias = {
+        labels: analisisCambios.porUsuario.map(([usuario]) => usuario),
+        datasets: [{
+          label: 'Cambios por Usuario (USD)',
+          data: analisisCambios.porUsuario.map(([, datos]) => datos.total),
+          backgroundColor: '#9966FF',
+          borderWidth: 2,
+          borderColor: '#fff'
+        }]
+      };
+
+      // Relación USD/USDT
+      datosTendencia = {
+        labels: ['USD Cambiados', 'USDT Recibidos', 'Comisión'],
+        datasets: [{
+          label: 'Operaciones de Cambio',
+          data: [analisisCambios.totalUSD, analisisCambios.totalUSDT, analisisCambios.comisionTotal],
+          backgroundColor: ['#9966FF', '#FF6384', '#FFCE56'],
+          borderWidth: 2,
+          borderColor: '#fff'
+        }]
       };
     }
 
-    // Suma por mes según tipo seleccionado (o todo si "general")
-    const esGasto = tipoAnalisis === 'gastos';
-    const esCompra = tipoAnalisis === 'compras';
-
-    transacciones.forEach(t => {
-      if (tipoAnalisis === 'general' || (esGasto && t.tipo === 'Gasto') || (esCompra && t.tipo === 'Compra')) {
-        const fecha = new Date(t.fecha);
-        const key = `${fecha.getFullYear()}-${String(fecha.getMonth() + 1).padStart(2, '0')}`;
-        if (meses[key]) {
-          const monto = Math.abs(parseFloat(t.monto) || 0);
-          meses[key].total += monto;
-          meses[key].cantidad++;
-        }
-      }
-    });
-
-    return Object.values(meses);
-  }, [transacciones, tipoAnalisis]);
-
-  // Crear gráfico de categorías (Chart.js)
-  useEffect(() => {
-    if (!chartRef.current) return;
-
-    if (chartInstance.current) {
-      chartInstance.current.destroy();
-    }
-
-    const ctx = chartRef.current.getContext('2d');
-
-    chartInstance.current = new Chart(ctx, {
-      type: 'bar',
-      data: {
-        labels: porCategoria.slice(0, 10).map(c => c.nombre),
-        datasets: [{
-          label: `${tipoAnalisis.charAt(0).toUpperCase() + tipoAnalisis.slice(1)} por Categoría`,
-          data: porCategoria.slice(0, 10).map(c => c.total),
-          backgroundColor: [
-            '#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6',
-            '#06b6d4', '#ec4899', '#14b8a6', '#f97316', '#a855f7'
-          ],
-          borderColor: '#ffffff',
-          borderWidth: 2
-        }]
-      },
+    // Crear gráficos
+    chartInstanceCategorias.current = new Chart(ctxCategorias, {
+      type: vistaActual === 'porCobrar' ? 'bar' : 'pie',
+      data: datosCategorias,
       options: {
         responsive: true,
         maintainAspectRatio: false,
         plugins: {
           legend: {
-            display: true,
-            position: 'top',
-            labels: { color: '#ffffff', font: { size: 14 } }
+            position: vistaActual === 'gastos' ? 'right' : 'bottom',
+            labels: { color: '#fff' }
           },
-          tooltip: {
-            callbacks: {
-              label: function (context) {
-                return `$${context.parsed.y.toFixed(2)}`;
-              }
-            }
+          title: {
+            display: true,
+            text: vistaActual === 'gastos' ? 'Gastos por Categoría' :
+                  vistaActual === 'ventas' ? 'Ventas por Cuenta' :
+                  vistaActual === 'porCobrar' ? 'Top 5 Clientes' :
+                  'Cambios por Usuario',
+            color: '#fff',
+            font: { size: 16 }
+          }
+        }
+      }
+    });
+
+    chartInstanceTendencia.current = new Chart(ctxTendencia, {
+      type: vistaActual === 'porCobrar' || vistaActual === 'cambios' ? 'bar' : 'line',
+      data: datosTendencia,
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            position: 'bottom',
+            labels: { color: '#fff' }
+          },
+          title: {
+            display: true,
+            text: vistaActual === 'gastos' ? 'Tendencia de Gastos' :
+                  vistaActual === 'ventas' ? 'Tendencia de Ventas' :
+                  vistaActual === 'porCobrar' ? 'Status de Compras' :
+                  'Resumen de Cambios',
+            color: '#fff',
+            font: { size: 16 }
           }
         },
-        scales: {
+        scales: vistaActual !== 'cambios' && vistaActual !== 'porCobrar' ? {
           y: {
             beginAtZero: true,
-            ticks: {
-              color: '#ffffff',
-              callback: function (value) { return '$' + value.toFixed(0); }
-            },
+            ticks: { color: '#fff' },
             grid: { color: 'rgba(255, 255, 255, 0.1)' }
           },
           x: {
-            ticks: { color: '#ffffff' },
+            ticks: { color: '#fff' },
             grid: { color: 'rgba(255, 255, 255, 0.1)' }
+          }
+        } : {
+          y: {
+            beginAtZero: true,
+            ticks: { color: '#fff' }
+          },
+          x: {
+            ticks: { color: '#fff' }
           }
         }
       }
     });
 
     return () => {
-      if (chartInstance.current) chartInstance.current.destroy();
+      if (chartInstanceCategorias.current) {
+        chartInstanceCategorias.current.destroy();
+      }
+      if (chartInstanceTendencia.current) {
+        chartInstanceTendencia.current.destroy();
+      }
     };
-  }, [porCategoria, tipoAnalisis]);
+  }, [vistaActual, analisisGastos, analisisVentas, analisisPorCobrar, analisisCambios]);
+
+  // Renderizar estadísticas según la vista
+  const renderEstadisticas = () => {
+    if (vistaActual === 'gastos') {
+      return (
+        <>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div className="bg-red-500/20 border border-red-500 rounded-lg p-4">
+              <p className="text-sm opacity-75">Total Gastado</p>
+              <p className="text-2xl font-bold">${analisisGastos.total.toFixed(2)}</p>
+              <p className="text-xs opacity-60">{analisisGastos.cantidad} gastos</p>
+            </div>
+            
+            <div className="bg-orange-500/20 border border-orange-500 rounded-lg p-4">
+              <p className="text-sm opacity-75">Promedio por Gasto</p>
+              <p className="text-2xl font-bold">${analisisGastos.promedio.toFixed(2)}</p>
+            </div>
+            
+            <div className="bg-pink-500/20 border border-pink-500 rounded-lg p-4">
+              <p className="text-sm opacity-75">Gasto Más Alto</p>
+              <p className="text-2xl font-bold">${analisisGastos.masAlto.monto.toFixed(2)}</p>
+              <p className="text-xs opacity-60 truncate">{analisisGastos.masAlto.data?.descripcion}</p>
+            </div>
+            
+            <div className="bg-purple-500/20 border border-purple-500 rounded-lg p-4">
+              <p className="text-sm opacity-75">Categoría Principal</p>
+              <p className="text-lg font-bold truncate">
+                {analisisGastos.porCategoria[0]?.[0]}
+              </p>
+              <p className="text-xs opacity-60">
+                ${analisisGastos.porCategoria[0]?.[1].total.toFixed(2)}
+              </p>
+            </div>
+          </div>
+
+          <div className="bg-yellow-500/20 border border-yellow-500 rounded-lg p-4 mb-6">
+            <h4 className="font-bold mb-2">💡 Recomendaciones para Reducir Gastos:</h4>
+            <ul className="text-sm space-y-1">
+              <li>• La categoría <strong>{analisisGastos.porCategoria[0]?.[0]}</strong> representa el {analisisGastos.porCategoria[0]?.[1].porcentaje.toFixed(1)}% del total</li>
+              <li>• Promedio diario: ${(analisisGastos.total / Math.max(analisisGastos.porDia.length, 1)).toFixed(2)}</li>
+              <li>• Considera revisar gastos en: {analisisGastos.porCategoria.slice(0, 3).map(([cat]) => cat).join(', ')}</li>
+            </ul>
+          </div>
+        </>
+      );
+    } else if (vistaActual === 'ventas') {
+      return (
+        <>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div className="bg-blue-500/20 border border-blue-500 rounded-lg p-4">
+              <p className="text-sm opacity-75">Total USDT Vendido</p>
+              <p className="text-2xl font-bold">{analisisVentas.totalUSDT.toFixed(2)}</p>
+              <p className="text-xs opacity-60">{analisisVentas.cantidad} ventas</p>
+            </div>
+            
+            <div className="bg-cyan-500/20 border border-cyan-500 rounded-lg p-4">
+              <p className="text-sm opacity-75">Total Bs Recibido</p>
+              <p className="text-2xl font-bold">{analisisVentas.totalBs.toFixed(2)}</p>
+            </div>
+            
+            <div className="bg-green-500/20 border border-green-500 rounded-lg p-4">
+              <p className="text-sm opacity-75">Tasa Promedio</p>
+              <p className="text-2xl font-bold">{analisisVentas.tasaPromedio.toFixed(2)}</p>
+              <p className="text-xs opacity-60">Bs/USDT</p>
+            </div>
+            
+            <div className="bg-teal-500/20 border border-teal-500 rounded-lg p-4">
+              <p className="text-sm opacity-75">Comisión Total</p>
+              <p className="text-2xl font-bold">{analisisVentas.comisionTotal.toFixed(2)}</p>
+              <p className="text-xs opacity-60">USDT (Binance 0.2%)</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4 mb-6">
+            <div className="bg-emerald-500/20 border border-emerald-500 rounded-lg p-4">
+              <h4 className="font-bold mb-2">🎯 Mejor Tasa Lograda</h4>
+              <p className="text-xl font-bold">{analisisVentas.mejorTasa.tasa.toFixed(2)} Bs/USDT</p>
+              <p className="text-xs opacity-75">{analisisVentas.mejorTasa.data?.fecha}</p>
+            </div>
+            
+            <div className="bg-lime-500/20 border border-lime-500 rounded-lg p-4">
+              <h4 className="font-bold mb-2">📊 Venta Más Grande</h4>
+              <p className="text-xl font-bold">{analisisVentas.masGrande.monto.toFixed(2)} USDT</p>
+              <p className="text-xs opacity-75">{analisisVentas.masGrande.data?.fecha}</p>
+            </div>
+          </div>
+        </>
+      );
+    } else if (vistaActual === 'porCobrar') {
+      return (
+        <>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div className="bg-yellow-500/20 border border-yellow-500 rounded-lg p-4">
+              <p className="text-sm opacity-75">Total en Compras</p>
+              <p className="text-2xl font-bold">${analisisPorCobrar.totalUSD.toFixed(2)}</p>
+              <p className="text-xs opacity-60">{analisisPorCobrar.cantidad} compras</p>
+            </div>
+            
+            <div className="bg-green-500/20 border border-green-500 rounded-lg p-4">
+              <p className="text-sm opacity-75">Pagado</p>
+              <p className="text-2xl font-bold">${analisisPorCobrar.totalPagado.toFixed(2)}</p>
+              <p className="text-xs opacity-60">{analisisPorCobrar.cantidadPagadas} compras</p>
+            </div>
+            
+            <div className="bg-orange-500/20 border border-orange-500 rounded-lg p-4">
+              <p className="text-sm opacity-75">Pendiente</p>
+              <p className="text-2xl font-bold">${analisisPorCobrar.totalPendiente.toFixed(2)}</p>
+              <p className="text-xs opacity-60">{analisisPorCobrar.cantidadPendientes} compras</p>
+            </div>
+            
+            <div className="bg-emerald-500/20 border border-emerald-500 rounded-lg p-4">
+              <p className="text-sm opacity-75">Ganancia Total</p>
+              <p className="text-2xl font-bold">${analisisPorCobrar.gananciaTotal.toFixed(2)}</p>
+            </div>
+          </div>
+
+          <div className="bg-blue-500/20 border border-blue-500 rounded-lg p-4 mb-6">
+            <h4 className="font-bold mb-2">💡 Recomendaciones para Más Compras:</h4>
+            <ul className="text-sm space-y-1">
+              <li>• Mejor tasa lograda: <strong>{analisisPorCobrar.mejorTasa.tasa.toFixed(2)} Bs/USD</strong></li>
+              <li>• Cliente top: <strong>{analisisPorCobrar.clientesTop[0]?.[0]}</strong> con ${analisisPorCobrar.clientesTop[0]?.[1].total.toFixed(2)}</li>
+              <li>• Ganancia pendiente de cobrar: ${analisisPorCobrar.gananciaPendientes.toFixed(2)}</li>
+              <li>• Promedio por compra: ${(analisisPorCobrar.totalUSD / analisisPorCobrar.cantidad).toFixed(2)}</li>
+            </ul>
+          </div>
+        </>
+      );
+    } else if (vistaActual === 'cambios') {
+      return (
+        <>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div className="bg-purple-500/20 border border-purple-500 rounded-lg p-4">
+              <p className="text-sm opacity-75">Total USD Cambiados</p>
+              <p className="text-2xl font-bold">${analisisCambios.totalUSD.toFixed(2)}</p>
+              <p className="text-xs opacity-60">{analisisCambios.cantidad} cambios</p>
+            </div>
+            
+            <div className="bg-indigo-500/20 border border-indigo-500 rounded-lg p-4">
+              <p className="text-sm opacity-75">Total USDT Recibidos</p>
+              <p className="text-2xl font-bold">{analisisCambios.totalUSDT.toFixed(2)}</p>
+            </div>
+            
+            <div className="bg-violet-500/20 border border-violet-500 rounded-lg p-4">
+              <p className="text-sm opacity-75">Tasa Promedio</p>
+              <p className="text-2xl font-bold">{analisisCambios.tasaPromedio.toFixed(4)}</p>
+              <p className="text-xs opacity-60">USDT/USD</p>
+            </div>
+            
+            <div className="bg-fuchsia-500/20 border border-fuchsia-500 rounded-lg p-4">
+              <p className="text-sm opacity-75">Comisión Total</p>
+              <p className="text-2xl font-bold">{analisisCambios.comisionTotal.toFixed(2)}</p>
+              <p className="text-xs opacity-60">USDT</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4 mb-6">
+            <div className="bg-pink-500/20 border border-pink-500 rounded-lg p-4">
+              <h4 className="font-bold mb-2">🎯 Mejor Tasa</h4>
+              <p className="text-xl font-bold">{analisisCambios.mejorTasa.tasa.toFixed(4)}</p>
+              <p className="text-xs opacity-75">{analisisCambios.mejorTasa.data?.fecha}</p>
+            </div>
+            
+            <div className="bg-rose-500/20 border border-rose-500 rounded-lg p-4">
+              <h4 className="font-bold mb-2">📊 Cambio Más Grande</h4>
+              <p className="text-xl font-bold">${analisisCambios.masGrande.monto.toFixed(2)}</p>
+              <p className="text-xs opacity-75">{analisisCambios.masGrande.data?.fecha}</p>
+            </div>
+          </div>
+        </>
+      );
+    }
+  };
 
   return (
     <div className="space-y-6">
-      {/* Controles */}
-      <div className={`${temaActual.tarjeta} backdrop-blur-lg rounded-2xl p-6`}>
-        <div className="flex flex-wrap gap-4 items-center justify-between">
-          <div>
-            <h2 className="text-2xl font-bold mb-2">📊 Análisis y Estadísticas</h2>
-            <p className="text-sm opacity-75">Visualiza tus datos financieros</p>
-          </div>
-
-          <div className="flex gap-3 flex-wrap">
-            <select
-              value={tipoAnalisis}
-              onChange={(e) => setTipoAnalisis(e.target.value)}
-              className="bg-slate-700 text-white rounded-lg px-4 py-2 font-semibold"
-            >
-              <option value="gastos">💰 Gastos</option>
-              <option value="compras">🛒 Compras</option>
-              <option value="general">📈 General</option>
-            </select>
-
-            <select
-              value={periodoAnalisis}
-              onChange={(e) => setPeriodoAnalisis(e.target.value)}
-              className="bg-slate-700 text-white rounded-lg px-4 py-2 font-semibold"
-            >
-              <option value="dia">📅 Hoy</option>
-              <option value="semana">📆 Esta Semana</option>
-              <option value="mes">🗓️ Este Mes</option>
-              <option value="año">📊 Este Año</option>
-            </select>
-          </div>
+      {/* Header con controles */}
+      <div className="flex flex-wrap gap-4 items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold">📊 Análisis y Gráficos</h2>
+          <p className="text-sm opacity-75">Estadísticas clave para tomar decisiones</p>
+        </div>
+        
+        <div className="flex gap-3">
+          {/* Selector de vista */}
+          <select 
+            value={vistaActual}
+            onChange={(e) => setVistaActual(e.target.value)}
+            className="bg-white/10 border border-white/20 rounded-lg px-4 py-2"
+          >
+            <option value="gastos">💸 Gastos</option>
+            <option value="ventas">💵 Ventas</option>
+            <option value="porCobrar">💰 Por Cobrar</option>
+            <option value="cambios">🔄 Cambios USD-USDT</option>
+          </select>
+          
+          {/* Selector de periodo */}
+          <select 
+            value={periodoAnalisis}
+            onChange={(e) => setPeriodoAnalisis(e.target.value)}
+            className="bg-white/10 border border-white/20 rounded-lg px-4 py-2"
+          >
+            <option value="dia">Hoy</option>
+            <option value="semana">Esta Semana</option>
+            <option value="mes">Este Mes</option>
+            <option value="año">Este Año</option>
+            <option value="todo">Todo</option>
+          </select>
         </div>
       </div>
 
-      {/* Estadísticas principales */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-gradient-to-br from-blue-500 to-blue-700 rounded-2xl p-6 text-white">
-          <p className="text-sm mb-2">Total {tipoAnalisis}</p>
-          <p className="text-3xl font-bold">${estadisticas.total.toFixed(2)}</p>
-          <p className="text-xs mt-2 opacity-75">{estadisticas.cantidad} transacciones</p>
+      {/* Estadísticas */}
+      {renderEstadisticas()}
+
+      {/* Gráficos */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="bg-white/5 rounded-lg p-6">
+          <canvas ref={chartCategorias} style={{ maxHeight: '400px' }}></canvas>
         </div>
-
-        <div className="bg-gradient-to-br from-green-500 to-green-700 rounded-2xl p-6 text-white">
-          <p className="text-sm mb-2">Promedio</p>
-          <p className="text-3xl font-bold">${estadisticas.promedio.toFixed(2)}</p>
-          <p className="text-xs mt-2 opacity-75">Por transacción</p>
-        </div>
-
-        <div className="bg-gradient-to-br from-red-500 to-red-700 rounded-2xl p-6 text-white">
-          <p className="text-sm mb-2">Máximo</p>
-          <p className="text-3xl font-bold">${estadisticas.maximo.monto.toFixed(2)}</p>
-          <p className="text-xs mt-2 opacity-75 truncate">
-            {estadisticas.maximo.transaccion?.descripcion || 'N/A'}
-          </p>
-        </div>
-
-        <div className="bg-gradient-to-br from-purple-500 to-purple-700 rounded-2xl p-6 text-white">
-          <p className="text-sm mb-2">Mínimo</p>
-          <p className="text-3xl font-bold">${estadisticas.minimo.monto.toFixed(2)}</p>
-          <p className="text-xs mt-2 opacity-75 truncate">
-            {estadisticas.minimo.transaccion?.descripcion || 'N/A'}
-          </p>
-        </div>
-      </div>
-
-      {/* Gráfico principal */}
-      <div className={`${temaActual.tarjeta} backdrop-blur-lg rounded-2xl p-6`}>
-        <h3 className="text-xl font-bold mb-4">
-          Top 10 Categorías - {tipoAnalisis.charAt(0).toUpperCase() + tipoAnalisis.slice(1)}
-        </h3>
-        <div className="h-96">
-          <canvas ref={chartRef}></canvas>
-        </div>
-      </div>
-
-      {/* Top 5 transacciones más grandes */}
-      <div className={`${temaActual.tarjeta} backdrop-blur-lg rounded-2xl p-6`}>
-        <h3 className="text-xl font-bold mb-4">🏆 Top 5 {tipoAnalisis} más grandes del periodo</h3>
-        <div className="space-y-3">
-          {top5Transacciones.map((t, i) => (
-            <div key={t.id} className="flex items-center justify-between bg-slate-700/50 rounded-lg p-4">
-              <div className="flex items-center gap-4">
-                <div className={`text-2xl font-bold ${
-                  i === 0 ? 'text-yellow-400' :
-                  i === 1 ? 'text-gray-400' :
-                  i === 2 ? 'text-orange-600' : 'text-white'
-                }`}>
-                  #{i + 1}
-                </div>
-                <div>
-                  <p className="font-semibold">{t.descripcion}</p>
-                  <p className="text-sm opacity-75">{t.fecha} - {t.categoria}</p>
-                  {t.cliente && <p className="text-xs opacity-60">Cliente: {t.cliente}</p>}
-                </div>
-              </div>
-              <div className="text-right">
-                <p className="text-2xl font-bold text-red-400">${Math.abs(t.monto).toFixed(2)}</p>
-                <p className="text-xs opacity-75">{t.moneda}</p>
-              </div>
-            </div>
-          ))}
-          {top5Transacciones.length === 0 && (
-            <p className="text-center py-8 opacity-75">No hay transacciones en este periodo</p>
-          )}
-        </div>
-      </div>
-
-      {/* Análisis por categoría detallado */}
-      <div className={`${temaActual.tarjeta} backdrop-blur-lg rounded-2xl p-6`}>
-        <h3 className="text-xl font-bold mb-4">📊 Análisis Detallado por Categoría</h3>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-white/20">
-                <th className="text-left p-3">Categoría</th>
-                <th className="text-center p-3">Cantidad</th>
-                <th className="text-right p-3">Total</th>
-                <th className="text-right p-3">Promedio</th>
-                <th className="text-right p-3">% del Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              {porCategoria.map((cat, i) => (
-                <tr key={cat.nombre} className="border-b border-white/10 hover:bg-white/5">
-                  <td className="p-3">
-                    <div className="flex items-center gap-2">
-                      <div
-                        className="w-4 h-4 rounded"
-                        style={{
-                          backgroundColor: [
-                            '#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6',
-                            '#06b6d4', '#ec4899', '#14b8a6', '#f97316', '#a855f7'
-                          ][i % 10]
-                        }}
-                      ></div>
-                      <span className="font-semibold">{cat.nombre}</span>
-                    </div>
-                  </td>
-                  <td className="p-3 text-center">{cat.cantidad}</td>
-                  <td className="p-3 text-right font-bold">${cat.total.toFixed(2)}</td>
-                  <td className="p-3 text-right">${cat.promedio.toFixed(2)}</td>
-                  <td className="p-3 text-right">
-                    <span className="text-blue-400 font-semibold">
-                      {((cat.total / estadisticas.total) * 100).toFixed(1)}%
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Análisis por día de la semana */}
-      <div className={`${temaActual.tarjeta} backdrop-blur-lg rounded-2xl p-6`}>
-        <h3 className="text-xl font-bold mb-4">📅 Análisis por Día de la Semana</h3>
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
-          {porDiaSemana.map((dia, i) => (
-            <div
-              key={i}
-              className="bg-gradient-to-br from-indigo-500 to-indigo-700 rounded-xl p-4 text-white text-center"
-            >
-              <p className="text-sm mb-2">{dia.nombre}</p>
-              <p className="text-xl font-bold">${dia.total.toFixed(0)}</p>
-              <p className="text-xs mt-2 opacity-75">{dia.cantidad} trans.</p>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Tendencia mensual */}
-      <div className={`${temaActual.tarjeta} backdrop-blur-lg rounded-2xl p-6`}>
-        <h3 className="text-xl font-bold mb-4">📈 Tendencia - Últimos 12 Meses</h3>
-        <div className="overflow-x-auto">
-          <div className="flex gap-2 min-w-max">
-            {tendenciaMensual.map((mes, i) => {
-              const maxTotal = Math.max(...tendenciaMensual.map(m => m.total));
-              const altura = mes.total > 0 ? (mes.total / maxTotal) * 200 : 10;
-
-              return (
-                <div key={i} className="flex flex-col items-center gap-2 flex-1 min-w-[80px]">
-                  <div className="text-sm font-semibold">${mes.total.toFixed(0)}</div>
-                  <div
-                    className="w-full bg-gradient-to-t from-blue-500 to-blue-300 rounded-t-lg transition-all hover:from-blue-600 hover:to-blue-400"
-                    style={{ height: `${altura}px`, minHeight: '10px' }}
-                  ></div>
-                  <div className="text-xs opacity-75 text-center">{mes.nombre}</div>
-                  <div className="text-xs opacity-50">{mes.cantidad}</div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-
-      {/* Insights */}
-      <div className={`${temaActual.tarjeta} backdrop-blur-lg rounded-2xl p-6`}>
-        <h3 className="text-xl font-bold mb-4">💡 Insights</h3>
-        <div className="space-y-3">
-          {porCategoria.length > 0 && (
-            <div className="bg-blue-500/20 border border-blue-500 rounded-lg p-4">
-              <p className="font-semibold text-blue-300">Categoría con más {tipoAnalisis}:</p>
-              <p className="text-lg mt-1">
-                <span className="font-bold">{porCategoria[0].nombre}</span> con ${porCategoria[0].total.toFixed(2)}
-                ({porCategoria[0].cantidad} transacciones)
-              </p>
-            </div>
-          )}
-
-          {porDiaSemana.length > 0 && (
-            <div className="bg-purple-500/20 border border-purple-500 rounded-lg p-4">
-              <p className="font-semibold text-purple-300">Día con más actividad:</p>
-              <p className="text-lg mt-1">
-                <span className="font-bold">
-                  {[...porDiaSemana].sort((a, b) => b.total - a.total)[0].nombre}
-                </span> con ${[...porDiaSemana].sort((a, b) => b.total - a.total)[0].total.toFixed(2)}
-              </p>
-            </div>
-          )}
-
-          {estadisticas.cantidad > 0 && (
-            <div className="bg-green-500/20 border border-green-500 rounded-lg p-4">
-              <p className="font-semibold text-green-300">Frecuencia de {tipoAnalisis}:</p>
-              <p className="text-lg mt-1">
-                Promedio de <span className="font-bold">
-                  {(estadisticas.cantidad / (periodoAnalisis === 'mes' ? 30 : periodoAnalisis === 'semana' ? 7 : 1)).toFixed(1)}
-                </span> {tipoAnalisis} por día
-              </p>
-            </div>
-          )}
+        
+        <div className="bg-white/5 rounded-lg p-6">
+          <canvas ref={chartTendencia} style={{ maxHeight: '400px' }}></canvas>
         </div>
       </div>
     </div>

@@ -1,14 +1,56 @@
 import React from 'react';
-import ImportarGastos from './ImportarGastos';
+import ImportadorGastos from './ImportadorGastos';
 import { db } from '../../services/firebase';
 
 const Gastos = ({ transacciones, temaActual, usuario, tasaVenta }) => {
   // Filtrar solo gastos
   const gastos = transacciones.filter(t => t.tipo === 'Gasto');
+  
+  console.log('📊 Total de gastos:', gastos.length);
+  console.log('📦 Gastos importados:', gastos.filter(g => g.esImportado).length);
+  console.log('✍️ Gastos normales:', gastos.filter(g => !g.esImportado).length);
+
+  // ⭐ CALCULAR TOTALES CORRECTAMENTE
+  const calcularTotales = () => {
+    let totalBs = 0;
+    let totalUSD = 0;
+    
+    gastos.forEach(g => {
+      // Sumar Bolívares (campo 'total')
+      const bs = parseFloat(g.total) || 0;
+      totalBs += bs;
+      
+      // ⭐ CRÍTICO: Sumar USD usando el campo 'gastoDolar' si existe
+      // Si no existe, usar 'monto' como fallback
+      const usd = parseFloat(g.gastoDolar) || parseFloat(g.monto) || 0;
+      totalUSD += usd;
+      
+      // Debug para las primeras 5 transacciones
+      if (gastos.indexOf(g) < 5) {
+        console.log(`Gasto #${gastos.indexOf(g) + 1}:`, {
+          descripcion: g.descripcion,
+          gastoDolar: g.gastoDolar,
+          monto: g.monto,
+          total: g.total,
+          'USD sumado': usd
+        });
+      }
+    });
+    
+    console.log('💰 Total USD calculado:', totalUSD);
+    console.log('💵 Total Bs calculado:', totalBs);
+    
+    return {
+      totalBs,
+      totalUSD,
+      promedio: gastos.length > 0 ? totalUSD / gastos.length : 0
+    };
+  };
 
   // Calcular total por categoría
   const calcularPorCategoria = () => {
     const porCategoria = {};
+    
     gastos.forEach(g => {
       if (!porCategoria[g.categoria]) {
         porCategoria[g.categoria] = {
@@ -18,14 +60,19 @@ const Gastos = ({ transacciones, temaActual, usuario, tasaVenta }) => {
           cantidad: 0
         };
       }
-      porCategoria[g.categoria].totalBs += g.total || g.monto || 0;
-      porCategoria[g.categoria].totalDolar += g.gastoDolar || 0;
+      
+      porCategoria[g.categoria].totalBs += parseFloat(g.total) || 0;
+      
+      // ⭐ Sumar USD correctamente
+      const usd = parseFloat(g.gastoDolar) || parseFloat(g.monto) || 0;
+      porCategoria[g.categoria].totalDolar += usd;
       porCategoria[g.categoria].cantidad++;
     });
+    
     return Object.values(porCategoria).sort((a, b) => b.totalDolar - a.totalDolar);
   };
 
-  // ✅ FUNCIÓN PARA LIMPIAR GASTOS IMPORTADOS
+  // Limpiar gastos importados
   const limpiarGastosImportados = async () => {
     const confirmar = window.confirm(
       '⚠️ ¿Eliminar TODOS los gastos importados?\n\n' +
@@ -37,7 +84,7 @@ const Gastos = ({ transacciones, temaActual, usuario, tasaVenta }) => {
     try {
       const snapshot = await db.collection('transacciones')
         .where('usuarioId', '==', usuario.uid)
-        .where('importado', '==', true)
+        .where('esImportado', '==', true)
         .where('importadoDesde', '==', 'gastos')
         .get();
 
@@ -61,130 +108,112 @@ const Gastos = ({ transacciones, temaActual, usuario, tasaVenta }) => {
     }
   };
 
+  const totales = calcularTotales();
   const resumenCategorias = calcularPorCategoria();
-
-  // Calcular totales generales
-  const totales = {
-    totalBs: gastos.reduce((sum, g) => sum + (g.total || g.monto || 0), 0),
-    totalDolar: gastos.reduce((sum, g) => sum + (g.gastoDolar || 0), 0),
-    importados: gastos.filter(g => g.importado).length,
-    normales: gastos.filter(g => !g.importado).length
-  };
 
   return (
     <div className="space-y-6">
-      {/* Header con botones */}
-      <div className={`${temaActual.tarjeta} backdrop-blur-lg rounded-2xl p-6 border border-white/20`}>
-        <div className="flex justify-between items-center flex-wrap gap-4">
-          <div>
-            <h2 className="text-2xl font-bold mb-2">💰 Gestión de Gastos</h2>
-            <p className="text-sm opacity-75">
-              Total de gastos: {gastos.length} 
-              ({totales.normales} normales, {totales.importados} importados)
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <ImportarGastos 
-              usuario={usuario}
-              tasaVenta={tasaVenta}
-              temaActual={temaActual}
-            />
-            {/* ✅ BOTÓN PARA LIMPIAR GASTOS IMPORTADOS */}
-            <button
-              onClick={limpiarGastosImportados}
-              className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg font-semibold"
-            >
-              🗑️ Limpiar Importados
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Tarjetas de resumen */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-gradient-to-br from-red-500 to-red-700 rounded-2xl p-6 text-white">
-          <p className="text-sm mb-2">Total Gastos</p>
-          <p className="text-3xl font-bold">{gastos.length}</p>
-          <p className="text-xs mt-2 opacity-75">Transacciones</p>
-        </div>
-        <div className="bg-gradient-to-br from-orange-500 to-orange-700 rounded-2xl p-6 text-white">
-          <p className="text-sm mb-2">Total en Bs</p>
-          <p className="text-2xl font-bold">{totales.totalBs.toFixed(2)}</p>
-          <p className="text-xs mt-2 opacity-75">Bolívares</p>
-        </div>
-        <div className="bg-gradient-to-br from-pink-500 to-pink-700 rounded-2xl p-6 text-white">
-          <p className="text-sm mb-2">Total en USD</p>
-          <p className="text-3xl font-bold">${totales.totalDolar.toFixed(2)}</p>
-          <p className="text-xs mt-2 opacity-75">Dólares</p>
-        </div>
-        <div className="bg-gradient-to-br from-purple-500 to-purple-700 rounded-2xl p-6 text-white">
-          <p className="text-sm mb-2">Promedio por Gasto</p>
-          <p className="text-2xl font-bold">
-            ${gastos.length > 0 ? (totales.totalDolar / gastos.length).toFixed(2) : '0.00'}
+      {/* Header */}
+      <div className="flex justify-between items-center">
+        <div>
+          <h2 className="text-2xl font-bold flex items-center gap-2">
+            💸 Gestión de Gastos
+          </h2>
+          <p className="text-sm opacity-75">
+            Total de gastos: {gastos.length} 
+            ({gastos.filter(g => !g.esImportado).length} normales, {gastos.filter(g => g.esImportado).length} importados)
           </p>
-          <p className="text-xs mt-2 opacity-75">USD</p>
+        </div>
+        
+        <div className="flex gap-3">
+          <ImportadorGastos usuario={usuario} tasaVenta={tasaVenta} />
+          <button
+            onClick={limpiarGastosImportados}
+            className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg flex items-center gap-2"
+          >
+            🗑️ Limpiar Importados
+          </button>
         </div>
       </div>
 
-      {/* Resumen por categoría */}
-      <div className={`${temaActual.tarjeta} backdrop-blur-lg rounded-2xl p-6`}>
-        <h2 className="text-2xl font-bold mb-4">📊 Resumen por Categoría</h2>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-white/20">
-                <th className="text-left p-3">Categoría</th>
-                <th className="text-center p-3">Cantidad</th>
-                <th className="text-right p-3">Total Bs</th>
-                <th className="text-right p-3">Total USD</th>
-                <th className="text-right p-3">% del Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              {resumenCategorias.map(cat => (
-                <tr key={cat.categoria} className="border-b border-white/10 hover:bg-white/5">
-                  <td className="p-3 font-semibold">{cat.categoria}</td>
-                  <td className="p-3 text-center">{cat.cantidad}</td>
-                  <td className="p-3 text-right">{cat.totalBs.toFixed(2)} Bs</td>
-                  <td className="p-3 text-right font-bold text-red-400">${cat.totalDolar.toFixed(2)}</td>
-                  <td className="p-3 text-right text-blue-400 font-semibold">
-                    {totales.totalDolar > 0 ? ((cat.totalDolar / totales.totalDolar) * 100).toFixed(1) : 0}%
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {/* Tarjetas de Estadísticas */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="bg-red-500/20 border border-red-500 rounded-lg p-6">
+          <p className="text-sm opacity-75 mb-2">Total Gastos</p>
+          <p className="text-3xl font-bold">{gastos.length}</p>
+          <p className="text-xs opacity-60 mt-1">Transacciones</p>
+        </div>
+        
+        <div className="bg-orange-500/20 border border-orange-500 rounded-lg p-6">
+          <p className="text-sm opacity-75 mb-2">Total en Bs</p>
+          <p className="text-3xl font-bold">{totales.totalBs.toFixed(2)}</p>
+          <p className="text-xs opacity-60 mt-1">Bolívares</p>
+        </div>
+        
+        <div className="bg-pink-500/20 border border-pink-500 rounded-lg p-6">
+          <p className="text-sm opacity-75 mb-2">Total en USD</p>
+          <p className="text-3xl font-bold">${totales.totalUSD.toFixed(2)}</p>
+          <p className="text-xs opacity-60 mt-1">Dólares</p>
+        </div>
+        
+        <div className="bg-purple-500/20 border border-purple-500 rounded-lg p-6">
+          <p className="text-sm opacity-75 mb-2">Promedio por Gasto</p>
+          <p className="text-3xl font-bold">${totales.promedio.toFixed(2)}</p>
+          <p className="text-xs opacity-60 mt-1">USD</p>
         </div>
       </div>
 
-      {/* Lista de gastos recientes */}
-      <div className={`${temaActual.tarjeta} backdrop-blur-lg rounded-2xl p-6`}>
-        <h2 className="text-2xl font-bold mb-4">📋 Últimos 20 Gastos</h2>
-        <div className="space-y-2">
-          {gastos.slice(0, 20).map(g => (
-            <div key={g.id} className="flex justify-between items-center bg-slate-700/50 rounded-lg p-4 hover:bg-slate-700/70 transition-colors">
-              <div className="flex-1">
-                <div className="flex items-center gap-2">
-                  <p className="font-semibold">{g.descripcion}</p>
-                  {g.importado && (
-                    <span className="text-xs bg-blue-500/30 px-2 py-1 rounded">📥 Importado</span>
-                  )}
-                </div>
-                <p className="text-sm opacity-75">
-                  {g.fecha} - {g.categoria} - {g.cuenta}
-                </p>
+      {/* Gastos por Categoría */}
+      <div className="bg-white/5 rounded-lg p-6">
+        <h3 className="text-xl font-bold mb-4">📊 Gastos por Categoría</h3>
+        <div className="space-y-3">
+          {resumenCategorias.map((cat, index) => (
+            <div key={index} className="flex justify-between items-center p-3 bg-white/5 rounded-lg">
+              <div>
+                <p className="font-semibold">{cat.categoria}</p>
+                <p className="text-sm opacity-75">{cat.cantidad} gastos</p>
               </div>
               <div className="text-right">
-                <p className="text-lg font-bold text-red-400">
-                  {g.total?.toFixed(2) || g.monto?.toFixed(2) || '0.00'} Bs
-                </p>
-                <p className="text-sm text-red-300">${g.gastoDolar?.toFixed(2) || '0.00'}</p>
+                <p className="font-bold text-lg">${cat.totalDolar.toFixed(2)}</p>
+                <p className="text-sm opacity-75">{cat.totalBs.toFixed(2)} Bs</p>
               </div>
             </div>
           ))}
-          {gastos.length === 0 && (
-            <p className="text-center py-8 opacity-75">No hay gastos registrados</p>
-          )}
+        </div>
+      </div>
+
+      {/* Lista de Gastos Recientes */}
+      <div className="bg-white/5 rounded-lg p-6">
+        <h3 className="text-xl font-bold mb-4">📝 Gastos Recientes</h3>
+        <div className="space-y-2 max-h-96 overflow-y-auto">
+          {gastos
+            .sort((a, b) => new Date(b.fecha) - new Date(a.fecha))
+            .slice(0, 20)
+            .map((g, index) => (
+              <div key={index} className="flex justify-between items-center p-3 bg-white/5 rounded-lg hover:bg-white/10 transition-all">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <p className="font-semibold">{g.descripcion}</p>
+                    {g.esImportado && (
+                      <span className="text-xs bg-blue-500/30 px-2 py-0.5 rounded">
+                        📥 Importado
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-sm opacity-75">
+                    {g.fecha} • {g.categoria}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-lg font-bold text-red-400">
+                    ${(parseFloat(g.gastoDolar) || parseFloat(g.monto) || 0).toFixed(2)}
+                  </p>
+                  <p className="text-sm text-red-300">
+                    {(parseFloat(g.total) || 0).toFixed(2)} Bs
+                  </p>
+                </div>
+              </div>
+            ))}
         </div>
       </div>
     </div>
