@@ -260,11 +260,33 @@ const Graficos = ({ transacciones, temaActual }) => {
   // ANÁLISIS DE CAMBIOS USD-USDT
   // ========================================
   const analisisCambios = useMemo(() => {
-    const cambios = transaccionesFiltradas.filter(t => t.tipo === 'Cambio' || t.importadoDesde === 'cambios');
+    // Filtrar cambios (pueden venir con diferentes estructuras)
+    const cambios = transaccionesFiltradas.filter(t => 
+      t.tipo === 'Cambio' || 
+      t.importadoDesde === 'cambios' ||
+      t.esImportado && (t.usd || t.usdt)
+    );
     
-    const totalUSD = cambios.reduce((sum, c) => sum + (parseFloat(c.usd) || 0), 0);
-    const totalUSDT = cambios.reduce((sum, c) => sum + (parseFloat(c.usdt) || 0), 0);
-    const comisionTotal = cambios.reduce((sum, c) => sum + (parseFloat(c.comision) || 0), 0);
+    console.log('🔄 Análisis de Cambios:', {
+      'Total cambios': cambios.length,
+      'Primeros 3': cambios.slice(0, 3)
+    });
+    
+    // Calcular totales (probar diferentes campos)
+    const totalUSD = cambios.reduce((sum, c) => {
+      const usd = parseFloat(c.usd) || parseFloat(c.monto) || parseFloat(c.montoUSD) || 0;
+      return sum + usd;
+    }, 0);
+    
+    const totalUSDT = cambios.reduce((sum, c) => {
+      const usdt = parseFloat(c.usdt) || parseFloat(c.montoUSDT) || 0;
+      return sum + usdt;
+    }, 0);
+    
+    const comisionTotal = cambios.reduce((sum, c) => {
+      const comision = parseFloat(c.comision) || parseFloat(c.Comision) || 0;
+      return sum + comision;
+    }, 0);
     
     // Tasa promedio
     const tasaPromedio = cambios.length > 0
@@ -285,24 +307,50 @@ const Graficos = ({ transacciones, temaActual }) => {
       }
     });
     
-    // Cambio más grande
+    // Cambio más grande (por USD)
     let masGrande = { monto: 0, data: null };
     cambios.forEach(c => {
-      const monto = parseFloat(c.usd) || 0;
+      const monto = parseFloat(c.usd) || parseFloat(c.monto) || parseFloat(c.montoUSD) || 0;
       if (monto > masGrande.monto) {
         masGrande = { monto, data: c };
       }
     });
     
-    // Por usuario cambiador
-    const porUsuario = {};
+    // Por usuario/origen (goldsur, miguel, richard, etc.)
+    const porOrigen = {};
     cambios.forEach(c => {
-      const usuario = c.usuarioCambiador || 'Sin especificar';
-      if (!porUsuario[usuario]) {
-        porUsuario[usuario] = { total: 0, cantidad: 0 };
+      // Buscar el origen en diferentes campos
+      const origen = c.usuarioCambiador || 
+                     c.Usuario || 
+                     c.usuario || 
+                     c.origen || 
+                     c.categoria ||
+                     'Sin especificar';
+      
+      if (!porOrigen[origen]) {
+        porOrigen[origen] = { 
+          totalUSD: 0, 
+          totalUSDT: 0,
+          cantidad: 0,
+          comision: 0 
+        };
       }
-      porUsuario[usuario].total += parseFloat(c.usd) || 0;
-      porUsuario[usuario].cantidad++;
+      
+      porOrigen[origen].totalUSD += parseFloat(c.usd) || parseFloat(c.monto) || parseFloat(c.montoUSD) || 0;
+      porOrigen[origen].totalUSDT += parseFloat(c.usdt) || parseFloat(c.montoUSDT) || 0;
+      porOrigen[origen].cantidad++;
+      porOrigen[origen].comision += parseFloat(c.comision) || parseFloat(c.Comision) || 0;
+    });
+    
+    // Ordenar por total USD
+    const origenesOrdenados = Object.entries(porOrigen)
+      .sort((a, b) => b[1].totalUSD - a[1].totalUSD);
+    
+    console.log('💰 Totales calculados:', {
+      'Total USD': totalUSD,
+      'Total USDT': totalUSDT,
+      'Comisión': comisionTotal,
+      'Por Origen': origenesOrdenados
     });
     
     return {
@@ -314,7 +362,7 @@ const Graficos = ({ transacciones, temaActual }) => {
       mejorTasa,
       peorTasa,
       masGrande,
-      porUsuario: Object.entries(porUsuario).sort((a, b) => b[1].total - a[1].total)
+      porOrigen: origenesOrdenados
     };
   }, [transaccionesFiltradas]);
 
@@ -414,13 +462,16 @@ const Graficos = ({ transacciones, temaActual }) => {
         }]
       };
     } else if (vistaActual === 'cambios') {
-      // Por usuario
+      // Por origen/usuario
       datosCategorias = {
-        labels: analisisCambios.porUsuario.map(([usuario]) => usuario),
+        labels: analisisCambios.porOrigen.map(([origen]) => origen),
         datasets: [{
-          label: 'Cambios por Usuario (USD)',
-          data: analisisCambios.porUsuario.map(([, datos]) => datos.total),
-          backgroundColor: '#9966FF',
+          label: 'Cambios por Origen (USD)',
+          data: analisisCambios.porOrigen.map(([, datos]) => datos.totalUSD),
+          backgroundColor: [
+            '#9966FF', '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0',
+            '#FF9F40', '#9966FF', '#C9CBCF'
+          ],
           borderWidth: 2,
           borderColor: '#fff'
         }]
@@ -456,7 +507,7 @@ const Graficos = ({ transacciones, temaActual }) => {
             text: vistaActual === 'gastos' ? 'Gastos por Categoría' :
                   vistaActual === 'ventas' ? 'Ventas por Cuenta' :
                   vistaActual === 'porCobrar' ? 'Top 5 Clientes' :
-                  'Cambios por Usuario',
+                  'Cambios por Origen',
             color: '#fff',
             font: { size: 16 }
           }
@@ -682,6 +733,26 @@ const Graficos = ({ transacciones, temaActual }) => {
               <h4 className="font-bold mb-2">📊 Cambio Más Grande</h4>
               <p className="text-xl font-bold">${analisisCambios.masGrande.monto.toFixed(2)}</p>
               <p className="text-xs opacity-75">{analisisCambios.masGrande.data?.fecha}</p>
+            </div>
+          </div>
+
+          {/* Desglose por Origen */}
+          <div className="bg-white/5 rounded-lg p-6 mb-6">
+            <h3 className="text-xl font-bold mb-4">💼 Ingresos por Origen/Usuario</h3>
+            <div className="space-y-3">
+              {analisisCambios.porOrigen.map(([origen, datos], index) => (
+                <div key={index} className="flex justify-between items-center p-4 bg-white/5 rounded-lg hover:bg-white/10 transition-all">
+                  <div className="flex-1">
+                    <p className="font-bold text-lg capitalize">{origen}</p>
+                    <p className="text-sm opacity-75">{datos.cantidad} operaciones</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xl font-bold text-purple-400">${datos.totalUSD.toFixed(2)}</p>
+                    <p className="text-sm opacity-75">{datos.totalUSDT.toFixed(2)} USDT</p>
+                    <p className="text-xs text-orange-400">Comisión: {datos.comision.toFixed(2)} USDT</p>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         </>
