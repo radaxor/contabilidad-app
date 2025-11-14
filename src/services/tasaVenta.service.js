@@ -6,19 +6,19 @@ import 'firebase/compat/firestore';
 const db = firebase.firestore();
 
 /**
- * Obtiene la última venta registrada para una fecha específica
+ * Obtiene la tasa de venta para una fecha específica
  * @param {string} fecha - Fecha en formato YYYY-MM-DD
  * @param {string} usuarioId - ID del usuario actual
- * @returns {Promise<Object|null>} - Objeto con la tasa y datos de la venta, o null
+ * @returns {Promise<Object|null>}
  */
 export const obtenerTasaVentaPorFecha = async (fecha, usuarioId) => {
   try {
-    // Buscar ventas del usuario para esa fecha específica
+    // Intento 1: Query completa con orderBy (requiere índice)
     const snapshot = await db.collection('transacciones')
       .where('usuarioId', '==', usuarioId)
       .where('tipo', '==', 'Venta')
       .where('fecha', '==', fecha)
-      .orderBy('hora', 'desc') // Ordenar por hora descendente para obtener la más reciente
+      .orderBy('hora', 'desc')
       .limit(1)
       .get();
 
@@ -27,15 +27,41 @@ export const obtenerTasaVentaPorFecha = async (fecha, usuarioId) => {
       return {
         tasa: venta.tasaVenta,
         fecha: venta.fecha,
-        hora: venta.hora,
-        existe: true,
-        esHoy: fecha === new Date().toISOString().split('T')[0]
+        hora: venta.hora || '00:00',
+        existe: true
       };
     }
 
     return null;
   } catch (error) {
-    console.error('Error al obtener tasa de venta:', error);
+    console.warn('⚠️ Índice no disponible, usando fallback. Error:', error.message);
+    
+    // FALLBACK: Sin orderBy (no requiere índice)
+    try {
+      const snapshot = await db.collection('transacciones')
+        .where('usuarioId', '==', usuarioId)
+        .where('tipo', '==', 'Venta')
+        .where('fecha', '==', fecha)
+        .get();
+
+      if (!snapshot.empty) {
+        // Ordenar manualmente por hora
+        const ventas = [];
+        snapshot.forEach(doc => ventas.push(doc.data()));
+        ventas.sort((a, b) => (b.hora || '00:00').localeCompare(a.hora || '00:00'));
+        
+        const venta = ventas[0];
+        return {
+          tasa: venta.tasaVenta,
+          fecha: venta.fecha,
+          hora: venta.hora || '00:00',
+          existe: true
+        };
+      }
+    } catch (innerError) {
+      console.error('❌ Error en fallback:', innerError);
+    }
+
     return null;
   }
 };
@@ -47,6 +73,7 @@ export const obtenerTasaVentaPorFecha = async (fecha, usuarioId) => {
  */
 export const obtenerUltimaTasaVenta = async (usuarioId) => {
   try {
+    // Intento 1: Query completa con orderBy (requiere índice)
     const snapshot = await db.collection('transacciones')
       .where('usuarioId', '==', usuarioId)
       .where('tipo', '==', 'Venta')
@@ -60,14 +87,46 @@ export const obtenerUltimaTasaVenta = async (usuarioId) => {
       return {
         tasa: venta.tasaVenta,
         fecha: venta.fecha,
-        hora: venta.hora,
+        hora: venta.hora || '00:00',
         existe: true
       };
     }
 
     return null;
   } catch (error) {
-    console.error('Error al obtener última tasa:', error);
+    console.warn('⚠️ Índice no disponible, usando fallback. Error:', error.message);
+    
+    // FALLBACK: Sin orderBy de hora (solo fecha)
+    try {
+      const snapshot = await db.collection('transacciones')
+        .where('usuarioId', '==', usuarioId)
+        .where('tipo', '==', 'Venta')
+        .orderBy('fecha', 'desc')
+        .limit(10)
+        .get();
+
+      if (!snapshot.empty) {
+        // Ordenar manualmente por fecha y hora
+        const ventas = [];
+        snapshot.forEach(doc => ventas.push(doc.data()));
+        ventas.sort((a, b) => {
+          const fechaCompare = b.fecha.localeCompare(a.fecha);
+          if (fechaCompare !== 0) return fechaCompare;
+          return (b.hora || '00:00').localeCompare(a.hora || '00:00');
+        });
+        
+        const venta = ventas[0];
+        return {
+          tasa: venta.tasaVenta,
+          fecha: venta.fecha,
+          hora: venta.hora || '00:00',
+          existe: true
+        };
+      }
+    } catch (innerError) {
+      console.error('❌ Error en fallback:', innerError);
+    }
+
     return null;
   }
 };
@@ -79,8 +138,8 @@ export const obtenerUltimaTasaVenta = async (usuarioId) => {
  * @returns {number} - Diferencia en días
  */
 export const calcularDiferenciaDias = (fecha1, fecha2) => {
-  const d1 = new Date(fecha1);
-  const d2 = new Date(fecha2);
+  const d1 = new Date(fecha1 + 'T00:00:00');
+  const d2 = new Date(fecha2 + 'T00:00:00');
   const diffTime = Math.abs(d2 - d1);
   const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
   return diffDays;
@@ -135,40 +194,39 @@ export const obtenerTasaParaGasto = async (fechaGasto, usuarioId) => {
           fecha: ultimaTasa.fecha,
           hora: ultimaTasa.hora,
           estado: 'desactualizada',
-          mensaje: `La última tasa es del ${ultimaTasa.fecha}. Debe registrar una venta hoy para actualizar la tasa.`,
-          requiereActualizacion: true,
-          ultimaTasa: ultimaTasa.tasa
+          mensaje: `La última tasa es del ${ultimaTasa.fecha}. Por favor registra una venta de hoy.`,
+          requiereActualizacion: true
+        };
+      } else {
+        return {
+          tasa: ultimaTasa.tasa,
+          fecha: ultimaTasa.fecha,
+          hora: ultimaTasa.hora,
+          estado: 'reciente',
+          mensaje: `Usando última tasa del ${ultimaTasa.fecha}`,
+          requiereActualizacion: false
         };
       }
-
+    } else {
       return {
-        tasa: ultimaTasa.tasa,
-        fecha: ultimaTasa.fecha,
-        hora: ultimaTasa.hora,
-        estado: 'reciente',
-        mensaje: `Usando tasa del ${ultimaTasa.fecha}`,
-        requiereActualizacion: false
+        tasa: null,
+        fecha: null,
+        hora: null,
+        estado: 'sin_tasas',
+        mensaje: 'No hay tasas registradas. Por favor registra una venta primero.',
+        requiereActualizacion: true
       };
     }
-
+  } else {
+    // Es una fecha histórica sin tasa
     return {
       tasa: null,
       fecha: null,
       hora: null,
-      estado: 'sin_tasa',
-      mensaje: 'No hay tasas de venta registradas. Debe registrar una venta primero.',
-      requiereActualizacion: true
+      estado: 'historica_sin_tasa',
+      mensaje: `No hay ventas registradas para ${fechaGasto}. Ingresa la tasa manualmente.`,
+      requiereActualizacion: false,
+      permitirManual: true
     };
   }
-
-  // Si es fecha anterior y no hay tasa para esa fecha
-  return {
-    tasa: null,
-    fecha: null,
-    hora: null,
-    estado: 'fecha_sin_tasa',
-    mensaje: `No hay tasa de venta registrada para ${fechaGasto}. Debe ingresar la tasa manualmente.`,
-    requiereActualizacion: false,
-    requiereInput: true
-  };
 };

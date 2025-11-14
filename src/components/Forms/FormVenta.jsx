@@ -8,7 +8,7 @@ const FormVenta = ({ formVenta, setFormVenta }) => {
   const comisionBinance = montoUSDT * 0.002;
   const usdtNeto = montoUSDT - comisionBinance;
   const tasaVenta = parseFloat(formVenta.tasaVenta) || 0;
-  const montoBsRecibir = usdtNeto * tasaVenta;
+  const montoBs = usdtNeto * tasaVenta;
 
   return (
     <div className="space-y-4">
@@ -118,7 +118,7 @@ const FormVenta = ({ formVenta, setFormVenta }) => {
         </div>
         <div className="flex justify-between border-t border-white/20 pt-2">
           <span className="text-white font-semibold">Total a Recibir en {formVenta.cuentaDestino}:</span>
-          <span className="font-bold text-green-400 text-lg">{montoBsRecibir.toFixed(2)} Bs</span>
+          <span className="font-bold text-green-400 text-lg">{montoBs.toFixed(2)} Bs</span>
         </div>
       </div>
 
@@ -127,7 +127,7 @@ const FormVenta = ({ formVenta, setFormVenta }) => {
           ⚠️ <strong>Balance Binance se reducirá en:</strong> -{montoUSDT.toFixed(2)} USDT
         </p>
         <p className="text-xs text-green-200 mt-1">
-          ✅ <strong>Balance {formVenta.cuentaDestino} aumentará en:</strong> +{montoBsRecibir.toFixed(2)} Bs
+          ✅ <strong>Balance {formVenta.cuentaDestino} aumentará en:</strong> +{montoBs.toFixed(2)} Bs
         </p>
       </div>
     </div>

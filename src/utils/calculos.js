@@ -11,7 +11,7 @@ export const calcularBalance = (transacciones) => {
   let usd = 0, usdt = 0, bs = 0;
 
    // ⭐ FILTRAR: Solo transacciones NO importadas para el dashboard
-  const transaccionesNuevas = transacciones.filter(t => !t.importado);
+  const transaccionesNuevas = transacciones.filter(t => !t.importado && !t.esImportado);
   transaccionesNuevas.forEach(t => { 
     const monto = parseFloat(t.monto) || 0;
     const total = parseFloat(t.total) || 0;
@@ -21,11 +21,8 @@ export const calcularBalance = (transacciones) => {
       const montoUSDT = parseFloat(t.montoUSDT) || monto;
       const montoBs = parseFloat(t.montoBs) || 0;
       
-      // Restar USDT de Binance
-      usdt -= montoUSDT;
-      
-      // Sumar Bs a la cuenta destino
-      bs += montoBs;
+      usdt -= montoUSDT;  // Se resta de Binance
+      bs += montoBs;      // Se suma en Bs recibidos
       
     } else if (t.tipo === 'Gasto') {
       // Para gastos, restar según la moneda

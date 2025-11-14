@@ -1,7 +1,7 @@
 // src/components/Forms/FormTransaccion.jsx
 import React, { useState, useEffect } from 'react';
 import { crearTransaccion } from '../../services/transacciones.service';
-import { calcularCompra} from '../../utils/calculos';
+import { calcularCompra, calcularGastoDolar } from '../../utils/calculos';
 import FormCompra from './FormCompra';
 import FormGasto from './FormGasto';
 import FormGeneral from './FormGeneral';
@@ -136,18 +136,33 @@ const FormTransaccion = ({ usuario, tasaVenta, setMostrarForm }) => {
           tasaUsada: formGasto.tasaUsada // Guardar la tasa que se usó para el cálculo
         };
       } else if (form.tipo === 'Venta') {
+        // ✅ CORRECCIÓN APLICADA AQUÍ ✅
+        const montoUSDT = parseFloat(formVenta.montoUSDT);
+        const tasaVentaActual = parseFloat(formVenta.tasaVenta);
+        
+        // Calcular comisión Binance (0.2%)
+        const comisionBinance = montoUSDT * 0.002;
+        const usdtNeto = montoUSDT - comisionBinance;
+        
+        // Calcular el monto en Bolívares que se recibe
+        const montoBs = usdtNeto * tasaVentaActual;
+        
         datosTransaccion = {
           tipo: 'Venta',
           fecha: formVenta.fecha,
           hora: formVenta.hora,
-          montoUSDT: parseFloat(formVenta.montoUSDT),
-          tasaVenta: parseFloat(formVenta.tasaVenta),
+          montoUSDT: montoUSDT,
+          tasaVenta: tasaVentaActual,
           cuentaDestino: formVenta.cuentaDestino,
           descripcion: formVenta.descripcion,
-          monto: parseFloat(formVenta.montoUSDT),
+          montoBs: montoBs,  // ← CAMPO AGREGADO: Ahora se guarda el monto en Bs
+          comisionBinance: comisionBinance,  // ← Guardar también la comisión
+          usdtNeto: usdtNeto,  // ← USDT después de comisión
+          monto: montoUSDT,
           moneda: 'USDT',
           categoria: 'Venta de Divisas',
-          cuenta: 'Binance'
+          cuenta: 'Binance',
+          esImportado: false  // ← Marcar como transacción manual
         };
       } else {
         datosTransaccion = {
