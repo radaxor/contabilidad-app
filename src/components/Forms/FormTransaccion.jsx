@@ -1,7 +1,7 @@
 // src/components/Forms/FormTransaccion.jsx
 import React, { useState, useEffect } from 'react';
 import { crearTransaccion } from '../../services/transacciones.service';
-import { calcularCompra, calcularGastoDolar } from '../../utils/calculos';
+import { calcularCompra} from '../../utils/calculos';
 import FormCompra from './FormCompra';
 import FormGasto from './FormGasto';
 import FormGeneral from './FormGeneral';
@@ -123,18 +123,37 @@ const FormTransaccion = ({ usuario, tasaVenta, setMostrarForm }) => {
       } else if (form.tipo === 'Gasto') {
         const montoOriginal = parseFloat(formGasto.monto) || 0;
         
-        datosTransaccion = {
-          tipo: 'Gasto',
-          fecha: formGasto.fecha,
-          descripcion: formGasto.descripcion,
-          monto: montoOriginal,
-          categoria: formGasto.categoria,
-          cuenta: formGasto.cuenta,
-          moneda: formGasto.moneda,
-          total: montoOriginal,
-          gastoDolar: formGasto.gastoDolar,
-          tasaUsada: formGasto.tasaUsada // Guardar la tasa que se usó para el cálculo
-        };
+        // CRÍTICO: El balance se descuenta según la moneda, NO según gastoDolar
+  // gastoDolar es SOLO para estadísticas y reportes
+  datosTransaccion = {
+    tipo: 'Gasto',
+    fecha: formGasto.fecha,
+    descripcion: formGasto.descripcion,
+    categoria: formGasto.categoria,
+    cuenta: formGasto.cuenta,
+    moneda: formGasto.moneda,
+    
+    // IMPORTANTE: 'monto' es el valor en la moneda original del gasto
+    // Este es el valor que se usa para descontar del balance correspondiente
+    monto: montoOriginal,
+    
+    // Para compatibilidad con código antiguo
+    total: montoOriginal,
+    
+    // gastoDolar es SOLO para estadísticas (cuántos $ representan)
+    // NO se usa para descontar del balance
+    gastoDolar: formGasto.gastoDolar || 0,
+    
+    // Guardar la tasa que se usó (solo si es Bs)
+    tasaUsada: formGasto.tasaUsada || null,
+    
+    // Marcar como transacción manual (no importada)
+    importado: false
+  };
+  console.log('💰 Guardando gasto:', datosTransaccion);
+  console.log(`📊 Balance afectado: ${datosTransaccion.moneda} - Se descontará ${montoOriginal} de ${datosTransaccion.cuenta}`);
+
+
       } else if (form.tipo === 'Venta') {
         // ✅ CORRECCIÓN APLICADA AQUÍ ✅
         const montoUSDT = parseFloat(formVenta.montoUSDT);
@@ -249,6 +268,8 @@ const FormTransaccion = ({ usuario, tasaVenta, setMostrarForm }) => {
               formCompra={formCompra} 
               setFormCompra={setFormCompra} 
               tasaVenta={tasaVenta}
+              usuario={usuario}
+              onSolicitarVenta={handleSolicitarVenta}
             />
           ) : form.tipo === 'Gasto' ? (
             <FormGasto 

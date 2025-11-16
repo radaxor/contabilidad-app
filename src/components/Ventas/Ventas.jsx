@@ -1,11 +1,48 @@
+// src/components/Ventas/Ventas.jsx
 import React, { useMemo } from 'react';
 import ImportarVentas from './ImportarVentas';
 import { db } from '../../services/firebase';
 
 const Ventas = ({ transacciones, temaActual, usuario }) => {
-  // Filtrar solo ventas
+  // Función para formatear fecha: 2025-11-14 → 14/11/25
+  const formatearFecha = (fecha) => {
+    if (!fecha) return '';
+    
+    const partes = fecha.split('-');
+    if (partes.length !== 3) return fecha;
+    
+    const [año, mes, dia] = partes;
+    
+    // Convertir año de 4 dígitos a 2: 2025 → 25
+    const añoCorto = año.slice(-2);
+    
+    // Asegurar que día y mes tengan 2 dígitos
+    const diaFormateado = dia.padStart(2, '0');
+    const mesFormateado = mes.padStart(2, '0');
+    
+    return `${diaFormateado}/${mesFormateado}/${añoCorto}`;
+  };
+
+  // Filtrar y ORDENAR ventas (más reciente primero)
   const ventas = useMemo(() => {
-    return transacciones.filter(t => t.tipo === 'Venta');
+    const ventasFiltradas = transacciones.filter(t => t.tipo === 'Venta');
+    
+    // Ordenar de más reciente a más antigua
+    const ordenadas = ventasFiltradas.sort((a, b) => {
+      const fechaA = new Date(a.fecha + 'T' + (a.hora || '00:00'));
+      const fechaB = new Date(b.fecha + 'T' + (b.hora || '00:00'));
+      return fechaB - fechaA; // Descendente (más reciente primero)
+    });
+
+    // Log para verificar ordenamiento
+    if (ordenadas.length > 0) {
+      console.log('📊 Ventas ordenadas (primeras 5):');
+      ordenadas.slice(0, 5).forEach((v, i) => {
+        console.log(`  ${i + 1}. ${v.fecha} ${v.hora || '00:00'} - $${v.montoUSDT?.toFixed(2)}`);
+      });
+    }
+
+    return ordenadas;
   }, [transacciones]);
 
   // Calcular estadísticas
@@ -74,7 +111,9 @@ const Ventas = ({ transacciones, temaActual, usuario }) => {
         <div className="flex justify-between items-center flex-wrap gap-4">
           <div>
             <h2 className="text-2xl font-bold mb-2">💵 Ventas de Binance</h2>
-            <p className="text-sm opacity-75">Gestión de ventas P2P</p>
+            <p className="text-sm opacity-75">
+              Gestión de ventas P2P - Ordenadas por más reciente
+            </p>
           </div>
           <div className="flex gap-2">
             <ImportarVentas 
@@ -117,7 +156,13 @@ const Ventas = ({ transacciones, temaActual, usuario }) => {
 
       {/* Lista de ventas */}
       <div className={`${temaActual.tarjeta} backdrop-blur-lg rounded-2xl p-6`}>
-        <h3 className="text-xl font-bold mb-4">📋 Historial de Ventas</h3>
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-xl font-bold">📋 Historial de Ventas</h3>
+          <span className="text-sm opacity-75">
+            {ventas.length > 0 && `Mostrando ${ventas.length} ${ventas.length === 1 ? 'venta' : 'ventas'}`}
+          </span>
+        </div>
+        
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
@@ -128,29 +173,62 @@ const Ventas = ({ transacciones, temaActual, usuario }) => {
                 <th className="text-right p-3">Comisión</th>
                 <th className="text-right p-3">Tasa</th>
                 <th className="text-right p-3">Bs Recibido</th>
+                <th className="text-center p-3">Origen</th>
               </tr>
             </thead>
             <tbody>
-              {ventas.map(v => (
-                <tr key={v.id} className="border-b border-white/10 hover:bg-white/5">
-                  <td className="p-3">{v.fecha}</td>
-                  <td className="p-3">{v.hora}</td>
+              {ventas.map((v, index) => (
+                <tr 
+                  key={v.id} 
+                  className={`border-b border-white/10 hover:bg-white/5 transition-colors ${
+                    index === 0 ? 'bg-green-500/10' : ''
+                  }`}
+                >
+                  <td className="p-3">
+                    <span className="font-medium">
+                      {formatearFecha(v.fecha)}
+                    </span>
+                    {index === 0 && (
+                      <span className="ml-2 text-xs bg-green-500 text-white px-2 py-0.5 rounded">
+                        Más reciente
+                      </span>
+                    )}
+                  </td>
+                  <td className="p-3">{v.hora || '--:--'}</td>
                   <td className="p-3 text-right font-bold text-blue-400">
-                    ${v.montoUSDT?.toFixed(2)}
+                    ${v.montoUSDT?.toFixed(2) || '0.00'}
                   </td>
                   <td className="p-3 text-right text-red-400">
-                    ${v.comisionBinance?.toFixed(2)}
+                    ${v.comisionBinance?.toFixed(2) || '0.00'}
                   </td>
-                  <td className="p-3 text-right">{v.tasaVenta?.toFixed(2)}</td>
+                  <td className="p-3 text-right font-semibold">
+                    {v.tasaVenta?.toFixed(2) || '0.00'}
+                  </td>
                   <td className="p-3 text-right font-bold text-green-400">
-                    Bs {v.montoBs?.toFixed(2)}
+                    Bs {v.montoBs?.toFixed(2) || '0.00'}
+                  </td>
+                  <td className="p-3 text-center">
+                    {v.importado ? (
+                      <span className="text-xs bg-blue-500/20 text-blue-400 px-2 py-1 rounded">
+                        Importada
+                      </span>
+                    ) : (
+                      <span className="text-xs bg-purple-500/20 text-purple-400 px-2 py-1 rounded">
+                        Manual
+                      </span>
+                    )}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
           {ventas.length === 0 && (
-            <p className="text-center py-8 opacity-75">No hay ventas registradas</p>
+            <div className="text-center py-12">
+              <p className="text-xl opacity-75 mb-2">📭 No hay ventas registradas</p>
+              <p className="text-sm opacity-50">
+                Importa ventas desde Excel o registra una venta manualmente
+              </p>
+            </div>
           )}
         </div>
       </div>

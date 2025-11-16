@@ -31,8 +31,11 @@ export const calcularBalance = (transacciones) => {
       } else if (t.moneda === 'USDT') {
         usdt -= Math.abs(monto);
       } else if (t.moneda === 'Bs') {
-        // Si es en Bs, usar el campo 'total' que tiene el monto original
-        bs -= Math.abs(total || monto);
+        // Gasto en Bs: descontar del balance Bs
+        // Usar 'monto' o 'total', lo que esté disponible
+        const montoBs = Math.abs(total || monto);
+        bs -= montoBs;
+        
       }
     } 
     else if (t.tipo === 'Compra') {
